@@ -1,0 +1,20 @@
+# demo2 Python bridge configuration
+# All fields can be overridden by command-line flags.
+
+# Plugin endpoint (sensor-bridge plugin's /api/sensor/ingest)
+plugin_url: "http://127.0.0.1:18790"
+
+# Serial port (real Arduino mode). Use --mock to bypass.
+# Windows examples: COM3, COM4. Linux: /dev/ttyUSB0, /dev/ttyACM0
+serial_port: "COM3"
+serial_baud: 9600
+
+# SQLite history database (relative to repo root)
+sqlite_path: "./bridge/sensor-history.db"
+
+# Local HTTP server for receiving actuator commands from plugin
+cmd_host: "127.0.0.1"
+cmd_port: 8765
+
+# Path to the .env.local with OPENCLAW_GATEWAY_TOKEN
+env_path: "./.env.local"

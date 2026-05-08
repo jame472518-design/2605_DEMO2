@@ -34,7 +34,9 @@ pip install -r bridge/requirements.txt
 .\scripts\run-mock.ps1
 ```
 
-開瀏覽器 `http://127.0.0.1:18789/?token=...`(token 從 `.env.local` 讀)。
+開瀏覽器 `http://127.0.0.1:18790/?token=...`(token 從 `.env.local` 讀)。
+
+> demo1 預設用 18789;demo2 用 **18790**,兩個可以同時跑互不干擾。
 
 ## 真 Arduino 模式
 

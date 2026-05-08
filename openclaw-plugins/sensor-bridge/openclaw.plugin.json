@@ -1,0 +1,20 @@
+{
+  "id": "sensor-bridge",
+  "activation": { "onStartup": true },
+  "name": "Sensor Bridge",
+  "description": "Ingest sensor frames from Python bridge, broadcast SSE, run rule engine, dispatch judge agent + actuator commands, serve dashboard SPA.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "staticDir": {
+        "type": "string",
+        "description": "Filesystem path to compiled SPA bundle. Defaults to <plugin>/static/."
+      },
+      "bridgeUrl": {
+        "type": "string",
+        "description": "Base URL of the Python bridge for actuator command POSTs. Default http://127.0.0.1:8765."
+      }
+    }
+  }
+}

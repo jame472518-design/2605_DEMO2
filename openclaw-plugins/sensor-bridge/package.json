@@ -1,0 +1,24 @@
+{
+  "name": "@strixdemo2/sensor-bridge",
+  "version": "0.0.1",
+  "description": "demo2 sensor bridge: ingest sensor frames from Python serial bridge, broadcast SSE, evaluate rule engine, dispatch judge agent + actuator commands, serve dashboard SPA.",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "devDependencies": {
+    "openclaw": "*",
+    "typescript": "^5.4",
+    "@types/node": "^20"
+  }
+}
