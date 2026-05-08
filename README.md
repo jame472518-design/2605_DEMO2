@@ -55,4 +55,6 @@ pip install -r bridge/requirements.txt
 
 ## 對應計畫
 
-完整計畫見 `~/.claude/plans/federated-napping-beacon.md`。
+- `docs/PLAN.md` — 完整實作計畫(W1/W2 milestones、wire schemas、不做清單)
+- `docs/ARCHITECTURE.md` — 現在實際在跑的架構摘要
+- `docs/WIRING.md` — Arduino 接線圖
