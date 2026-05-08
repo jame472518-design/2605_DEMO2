@@ -7,15 +7,23 @@ import {
   type OpenClawPluginApi,
 } from "openclaw/plugin-sdk/core";
 import { sendActuator } from "./actuator.js";
+import { Judge } from "./judge.js";
 import { RuleEngine } from "./rules.js";
 import { SseChannel } from "./sse.js";
 import { servePlaceholder, serveStatic } from "./static.js";
 import { isSensorFrame, type ActuatorCommand } from "./types.js";
 
-type SensorBridgeConfig = {
-  staticDir?: string;
-  bridgeUrl?: string;
-};
+/**
+ * Plugin runtime knobs are read from process.env, NOT from plugins.entries.<id>.*
+ * in openclaw.json. The core gateway config validator rejects unknown keys at
+ * plugins.entries.<id>.* before the plugin manifest is loaded, so anything
+ * besides `enabled` is unsafe to put there. Env vars sidestep that.
+ *
+ *   OPENCLAW_DEMO2_STATIC_DIR     — override SPA path (default: <plugin>/static)
+ *   OPENCLAW_DEMO2_BRIDGE_URL     — Python bridge base URL (default: http://127.0.0.1:8765)
+ *   OPENCLAW_DEMO2_OLLAMA_URL     — Ollama HTTP API URL (default: http://127.0.0.1:11434)
+ *   OPENCLAW_DEMO2_JUDGE_MODEL    — Ollama model id (default: qwen2:1.5b)
+ */
 
 const PLUGIN_ID = "sensor-bridge";
 const PROFILE = "strixdemo2";
@@ -103,9 +111,13 @@ export default definePluginEntry({
   description:
     "Ingest sensor frames, broadcast SSE, run rule engine, dispatch judge agent + actuator commands, serve dashboard SPA.",
   register(api: OpenClawPluginApi) {
-    const cfg = (api.pluginConfig ?? {}) as SensorBridgeConfig;
-    const staticDir = cfg.staticDir && cfg.staticDir.length > 0 ? cfg.staticDir : defaultStaticDir();
-    const bridgeUrl = cfg.bridgeUrl ?? "http://127.0.0.1:8765";
+    const env = process.env;
+    const staticDir = env.OPENCLAW_DEMO2_STATIC_DIR && env.OPENCLAW_DEMO2_STATIC_DIR.length > 0
+      ? env.OPENCLAW_DEMO2_STATIC_DIR
+      : defaultStaticDir();
+    const bridgeUrl = env.OPENCLAW_DEMO2_BRIDGE_URL ?? "http://127.0.0.1:8765";
+    const ollamaBaseUrl = env.OPENCLAW_DEMO2_OLLAMA_URL ?? "http://127.0.0.1:11434";
+    const judgeModel = env.OPENCLAW_DEMO2_JUDGE_MODEL ?? "qwen2:1.5b";
     const log = api.logger;
     const expectedToken = resolveGatewayToken(api);
 
@@ -117,7 +129,30 @@ export default definePluginEntry({
 
     const sensorSse = new SseChannel({ replayLast: 1 });
     const alertSse = new SseChannel({ replayLast: 5 });
-    const engine = new RuleEngine(120);
+    // Try rules.yaml shipped alongside the plugin; fall back to built-in
+    // defaults if the file is missing (still safe — defaults match yaml).
+    const pluginRoot = path.dirname(staticDir);
+    const rulesPath = path.join(pluginRoot, "rules.yaml");
+    let engine: RuleEngine;
+    try {
+      engine = new RuleEngine(rulesPath, 120);
+      log.info(`[${PLUGIN_ID}] loaded rules from ${rulesPath}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`[${PLUGIN_ID}] rules.yaml load failed (${msg}) — using built-in defaults`);
+      engine = new RuleEngine();
+    }
+
+    // Judge: optional anomaly enrichment via Ollama. The judge-1 workspace
+    // markdown is copied into <pluginRoot>/judge-prompt/ by the installer;
+    // if missing (e.g. dev iteration), Judge falls back to its built-in
+    // default prompt.
+    const judge = new Judge({
+      ollamaBaseUrl,
+      model: judgeModel,
+      promptDir: path.join(pluginRoot, "judge-prompt"),
+    });
+    log.info(`[${PLUGIN_ID}] judge: ollama=${ollamaBaseUrl} model=${judgeModel}`);
 
     const requireToken = (req: IncomingMessage, res: ServerResponse): boolean => {
       if (!expectedToken) {
@@ -164,7 +199,26 @@ export default definePluginEntry({
           if (actuator) {
             void sendActuator(bridgeUrl, actuator as ActuatorCommand, log);
           }
-          // W2: kick off async judge.run() here to enrich alert with explanation
+          // Async enrichment: same alert id re-broadcast with explanation
+          // populated. UI dedups by id and replaces the stale v1.
+          void (async () => {
+            const t0 = Date.now();
+            const reply = await judge.judge(alert, log);
+            const dt = Date.now() - t0;
+            if (reply) {
+              alertSse.broadcast({
+                ...alert,
+                explanation: reply.explanation,
+                suggested_action: reply.suggested_action,
+              });
+              log.info(
+                `[${PLUGIN_ID}] judge enriched ${alert.rule} in ${dt}ms — ` +
+                  `explanation="${reply.explanation}" action="${reply.suggested_action}"`,
+              );
+            } else {
+              log.warn(`[${PLUGIN_ID}] judge returned null for ${alert.rule} after ${dt}ms`);
+            }
+          })();
         }
         writeJson(res, 200, { ok: true, alerts: fired.length });
         return true;

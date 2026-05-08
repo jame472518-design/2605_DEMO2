@@ -23,15 +23,20 @@ Python bridge ──HTTP──▶ OpenClaw plugin: sensor-bridge
 ```powershell
 # 1. 安裝依賴
 cd demo2
-pnpm install -r              # plugin + dashboard
-pip install -r bridge/requirements.txt
+pnpm install -r                     # plugin + dashboard
+pip install -r bridge\requirements.txt
 
-# 2. Bootstrap profile + 安裝 plugin
-.\scripts\bootstrap-profile.ps1
-.\scripts\install-plugins.ps1
+# 2. Bootstrap + 安裝 plugin + 註冊 agent
+.\scripts\bootstrap-profile.ps1     # 寫 ~/.openclaw-strixdemo2/openclaw.json
+.\scripts\install-workspaces.ps1    # 註冊 judge-1 進 agents.list
+cd dashboard; pnpm run build; cd .. # build SPA(plugin install 會帶進去)
+.\scripts\install-plugins.ps1       # 複製 plugin + SPA + judge-prompt 到 ~/.openclaw-strixdemo2/extensions/
 
-# 3. 起 mock 模式
-.\scripts\run-mock.ps1
+# 3.(選做)拉 LLM 模型 — 沒拉就跳過,alert 還是會 fire 只是沒中文 explanation
+ollama pull qwen2:1.5b              # ~1GB
+
+# 4. 起 mock 模式
+.\scripts\run-mock.ps1              # mock 模式;加 -ForceHeat 強制觸發 heat_sustained
 ```
 
 開瀏覽器 `http://127.0.0.1:18790/?token=...`(token 從 `.env.local` 讀)。

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
 import type { Alert, SensorFrame, Severity } from "./types.js";
 
 type Predicate = (f: SensorFrame) => boolean;
@@ -5,75 +7,176 @@ type Predicate = (f: SensorFrame) => boolean;
 type Rule = {
   id: string;
   severity: Severity;
+  /** Returns true if the rule should fire at the newest frame (history.length-1). */
   check(history: SensorFrame[]): boolean;
+  /** Diagnostic payload describing what tripped — written into Alert.trigger. */
   trigger(history: SensorFrame[]): Record<string, unknown>;
   actuator?: { device: "buzzer" | "led"; state: string; duration_ms?: number };
 };
 
+// ---- YAML schema ---------------------------------------------------------
+
+type SimpleOp = ">" | "<" | ">=" | "<=" | "==" | "!=";
+type SimpleCondition = {
+  metric: keyof SensorFrame;
+  op: SimpleOp;
+  value: number;
+  window_s?: number;
+};
+type CompositeCondition = { all?: SimpleCondition[]; any?: SimpleCondition[] };
+type RuleConfigWhen = SimpleCondition | CompositeCondition;
+type RuleConfig = {
+  id: string;
+  severity: Severity;
+  when: RuleConfigWhen;
+  actuator?: Rule["actuator"];
+};
+type RulesFile = { rules: RuleConfig[] };
+
+// ---- Helpers -------------------------------------------------------------
+
+function compareOp(op: SimpleOp, a: number, b: number): boolean {
+  switch (op) {
+    case ">":
+      return a > b;
+    case "<":
+      return a < b;
+    case ">=":
+      return a >= b;
+    case "<=":
+      return a <= b;
+    case "==":
+      return a === b;
+    case "!=":
+      return a !== b;
+  }
+}
+
+function makePredicate(c: SimpleCondition): Predicate {
+  return (f) => {
+    const v = f[c.metric];
+    return typeof v === "number" && compareOp(c.op, v, c.value);
+  };
+}
+
 /**
- * True iff `pred` holds for the newest frame AND every frame within the last
- * `windowMs` AND there's at least one history sample older than the window
- * (i.e. we actually have enough data to claim the condition has been sustained).
+ * True iff every frame from newest backwards through (and including) the
+ * cutoff boundary `windowMs` ago satisfies `pred`. Walks the history once
+ * from newest to oldest; the moment we encounter a sample at ts <= cutoff
+ * AND it satisfies pred, we have full window coverage and return true.
+ * Returns false if any visited sample fails pred, or if we run out of
+ * history before reaching the cutoff (not enough data yet).
  */
 function sustainedTrue(history: SensorFrame[], windowMs: number, pred: Predicate): boolean {
   if (history.length === 0) return false;
   const newest = history[history.length - 1]!;
   if (!pred(newest)) return false;
   const cutoff = Date.parse(newest.ts) - windowMs;
-  let i = history.length - 1;
-  while (i >= 0 && Date.parse(history[i]!.ts) >= cutoff) {
-    if (!pred(history[i]!)) return false;
-    i--;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const f = history[i]!;
+    if (!pred(f)) return false;
+    if (Date.parse(f.ts) <= cutoff) return true;
   }
-  return i >= 0;
+  return false;
 }
 
-const RULES: Rule[] = [
-  {
-    id: "heat_sustained",
-    severity: "warn",
-    check: (h) => sustainedTrue(h, 60_000, (f) => f.temp_c > 30),
-    trigger: (h) => ({
-      temp_c: h[h.length - 1]!.temp_c,
-      threshold: 30,
-      window_s: 60,
-    }),
-    actuator: { device: "buzzer", state: "on", duration_ms: 1500 },
-  },
-  {
-    id: "night_intrusion",
-    severity: "critical",
+// ---- Compilation: RuleConfig → Rule -------------------------------------
+
+function compileSimple(c: SimpleCondition): {
+  check: (h: SensorFrame[]) => boolean;
+  trigger: (h: SensorFrame[]) => Record<string, unknown>;
+} {
+  const pred = makePredicate(c);
+  if (typeof c.window_s === "number" && c.window_s > 0) {
+    const windowMs = c.window_s * 1000;
+    return {
+      check: (h) => sustainedTrue(h, windowMs, pred),
+      trigger: (h) => ({
+        [c.metric]: h[h.length - 1]?.[c.metric],
+        threshold: c.value,
+        window_s: c.window_s,
+      }),
+    };
+  }
+  return {
     check: (h) => {
-      const f = h[h.length - 1];
-      return !!f && f.pir === 1 && f.lux_raw < 50;
+      const newest = h[h.length - 1];
+      return !!newest && pred(newest);
     },
     trigger: (h) => ({
-      pir: h[h.length - 1]!.pir,
-      lux_raw: h[h.length - 1]!.lux_raw,
-      threshold_lux: 50,
+      [c.metric]: h[h.length - 1]?.[c.metric],
+      threshold: c.value,
     }),
-    actuator: { device: "led", state: "red" },
-  },
-  {
-    id: "object_too_close",
-    severity: "info",
-    check: (h) => sustainedTrue(h, 3_000, (f) => f.distance_cm < 15),
-    trigger: (h) => ({
-      distance_cm: h[h.length - 1]!.distance_cm,
-      threshold: 15,
-      window_s: 3,
-    }),
-  },
-];
+  };
+}
+
+function compileComposite(c: CompositeCondition): {
+  check: (h: SensorFrame[]) => boolean;
+  trigger: (h: SensorFrame[]) => Record<string, unknown>;
+} {
+  const all = (c.all ?? []).map(compileSimple);
+  const any = (c.any ?? []).map(compileSimple);
+  return {
+    check: (h) => {
+      if (all.length > 0 && !all.every((p) => p.check(h))) return false;
+      if (any.length > 0 && !any.some((p) => p.check(h))) return false;
+      return all.length > 0 || any.length > 0;
+    },
+    trigger: (h) => {
+      const out: Record<string, unknown> = {};
+      for (const p of [...all, ...any]) Object.assign(out, p.trigger(h));
+      return out;
+    },
+  };
+}
+
+function isComposite(when: RuleConfigWhen): when is CompositeCondition {
+  return Object.prototype.hasOwnProperty.call(when, "all") ||
+    Object.prototype.hasOwnProperty.call(when, "any");
+}
+
+function compileRule(cfg: RuleConfig): Rule {
+  const compiled = isComposite(cfg.when)
+    ? compileComposite(cfg.when)
+    : compileSimple(cfg.when);
+  return {
+    id: cfg.id,
+    severity: cfg.severity,
+    actuator: cfg.actuator,
+    check: compiled.check,
+    trigger: compiled.trigger,
+  };
+}
+
+export function loadRules(yamlPath: string): Rule[] {
+  const raw = readFileSync(yamlPath, "utf-8");
+  const parsed = parseYaml(raw) as RulesFile;
+  if (!parsed?.rules || !Array.isArray(parsed.rules)) {
+    throw new Error(`rules.yaml: top-level "rules" array missing in ${yamlPath}`);
+  }
+  return parsed.rules.map(compileRule);
+}
+
+// ---- Engine --------------------------------------------------------------
 
 export class RuleEngine {
   private readonly history: SensorFrame[] = [];
   private readonly maxHistory: number;
-  /** Per-rule edge state: true while rule is currently firing (suppresses re-fires). */
   private readonly active = new Map<string, boolean>();
+  private readonly rules: Rule[];
 
-  constructor(maxHistory = 120) {
-    this.maxHistory = maxHistory;
+  constructor(rules: Rule[] | string | number = DEFAULT_RULES, maxHistory = 120) {
+    if (typeof rules === "number") {
+      // Back-compat: legacy ctor signature `new RuleEngine(maxHistory)`.
+      this.maxHistory = rules;
+      this.rules = DEFAULT_RULES;
+    } else if (typeof rules === "string") {
+      this.maxHistory = maxHistory;
+      this.rules = loadRules(rules);
+    } else {
+      this.maxHistory = maxHistory;
+      this.rules = rules;
+    }
   }
 
   ingest(frame: SensorFrame): Alert[] {
@@ -84,7 +187,7 @@ export class RuleEngine {
 
   private evaluate(frame: SensorFrame): Alert[] {
     const fired: Alert[] = [];
-    for (const rule of RULES) {
+    for (const rule of this.rules) {
       const passes = rule.check(this.history);
       const wasActive = this.active.get(rule.id) ?? false;
       if (passes && !wasActive) {
@@ -106,12 +209,41 @@ export class RuleEngine {
     return fired;
   }
 
-  /** Look up actuator config by rule id (for routing actuator commands). */
   getActuator(ruleId: string): Rule["actuator"] {
-    return RULES.find((r) => r.id === ruleId)?.actuator;
+    return this.rules.find((r) => r.id === ruleId)?.actuator;
   }
 
   size(): number {
     return this.history.length;
   }
 }
+
+// ---- Default fallback (matches rules.yaml exactly) ----------------------
+//
+// Used when RuleEngine is constructed without specifying a YAML path. Tests
+// rely on this; production loads from rules.yaml shipped alongside the plugin.
+
+const DEFAULT_RULES: Rule[] = [
+  compileRule({
+    id: "heat_sustained",
+    severity: "warn",
+    when: { metric: "temp_c", op: ">", value: 30, window_s: 60 },
+    actuator: { device: "buzzer", state: "on", duration_ms: 1500 },
+  }),
+  compileRule({
+    id: "night_intrusion",
+    severity: "critical",
+    when: {
+      all: [
+        { metric: "pir", op: "==", value: 1 },
+        { metric: "lux_raw", op: "<", value: 50 },
+      ],
+    },
+    actuator: { device: "led", state: "red" },
+  }),
+  compileRule({
+    id: "object_too_close",
+    severity: "info",
+    when: { metric: "distance_cm", op: "<", value: 15, window_s: 3 },
+  }),
+];

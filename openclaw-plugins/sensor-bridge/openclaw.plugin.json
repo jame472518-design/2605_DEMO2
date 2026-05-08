@@ -6,15 +6,7 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-      "staticDir": {
-        "type": "string",
-        "description": "Filesystem path to compiled SPA bundle. Defaults to <plugin>/static/."
-      },
-      "bridgeUrl": {
-        "type": "string",
-        "description": "Base URL of the Python bridge for actuator command POSTs. Default http://127.0.0.1:8765."
-      }
-    }
-  }
+    "properties": {}
+  },
+  "_runtimeConfigNote": "Runtime knobs are read from env vars (OpenClaw 2026.5.6's core schema rejects unknown plugins.entries.<id>.* keys before plugin manifests load, so plugin-defined config is decorative). See README for the full list."
 }

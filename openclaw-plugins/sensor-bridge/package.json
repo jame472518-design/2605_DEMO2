@@ -9,16 +9,21 @@
     "openclaw.plugin.json"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "vitest run"
   },
   "openclaw": {
     "extensions": [
       "./dist/index.js"
     ]
   },
+  "dependencies": {
+    "yaml": "^2.6.0"
+  },
   "devDependencies": {
     "openclaw": "*",
     "typescript": "^5.4",
-    "@types/node": "^20"
+    "@types/node": "^20",
+    "vitest": "^3.0"
   }
 }

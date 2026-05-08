@@ -25,6 +25,25 @@ foreach ($p in $plugins) {
     Copy-Item -Recurse -Force "$($p.FullName)\dist" $dst
     Copy-Item -Force "$($p.FullName)\package.json" $dst
     Copy-Item -Force "$($p.FullName)\openclaw.plugin.json" $dst
+    # rules.yaml: ship alongside the plugin so plugin can locate it at runtime.
+    if (Test-Path "$($p.FullName)\rules.yaml") {
+        Copy-Item -Force "$($p.FullName)\rules.yaml" $dst
+    }
+    # judge-prompt: copy SOUL.md + AGENTS.md from the judge-1 workspace into
+    # the sensor-bridge plugin install dir so judge.ts can read them as the
+    # system prompt at startup. (Only sensor-bridge needs this.)
+    if ($p.Name -eq "sensor-bridge") {
+        $judgeWs = Resolve-Path "$PSScriptRoot\..\openclaw-workspaces\judge-1" -ErrorAction SilentlyContinue
+        if ($judgeWs) {
+            $promptDst = Join-Path $dst "judge-prompt"
+            New-Item -ItemType Directory -Force -Path $promptDst | Out-Null
+            foreach ($f in @("SOUL.md", "AGENTS.md")) {
+                $src = Join-Path $judgeWs $f
+                if (Test-Path $src) { Copy-Item -Force $src $promptDst }
+            }
+            Write-Host "[$($p.Name)] copied judge-1 prompt -> $promptDst"
+        }
+    }
 
     # Ship runtime dependencies (production deps only).
     $pkg = Get-Content "$($p.FullName)\package.json" -Raw | ConvertFrom-Json
