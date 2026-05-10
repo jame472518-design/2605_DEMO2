@@ -20,24 +20,30 @@ Python bridge ──HTTP──▶ OpenClaw plugin: sensor-bridge
 
 ## 快速跑(mock 模式,沒 Arduino 也可)
 
+**第一次設定**(只跑一次):
+
 ```powershell
-# 1. 安裝依賴
 cd demo2
 pnpm install -r                     # plugin + dashboard
 pip install -r bridge\requirements.txt
-
-# 2. Bootstrap + 安裝 plugin + 註冊 agent
 .\scripts\bootstrap-profile.ps1     # 寫 ~/.openclaw-strixdemo2/openclaw.json
 .\scripts\install-workspaces.ps1    # 註冊 judge-1 進 agents.list
-cd dashboard; pnpm run build; cd .. # build SPA(plugin install 會帶進去)
-.\scripts\install-plugins.ps1       # 複製 plugin + SPA + judge-prompt 到 ~/.openclaw-strixdemo2/extensions/
-
-# 3.(選做)拉 LLM 模型 — 沒拉就跳過,alert 還是會 fire 只是沒中文 explanation
-ollama pull qwen2:1.5b              # ~1GB
-
-# 4. 起 mock 模式
-.\scripts\run-mock.ps1              # mock 模式;加 -ForceHeat 強制觸發 heat_sustained
+cd dashboard; pnpm run build; cd ..
+.\scripts\install-plugins.ps1       # plugin + SPA + judge-prompt 進 ~/.openclaw-strixdemo2/extensions/
+ollama pull qwen2:1.5b              # ~1GB(不拉 alert 還是會 fire,只是沒中文 explanation)
 ```
+
+**之後每次跑 demo**:
+
+```powershell
+.\scripts\start-demo.ps1            # 一鍵起 gateway + 假資料 bridge + 開瀏覽器
+.\scripts\start-demo.ps1 -ForceHeat # mock 5s 後強觸發 heat_sustained 規則
+.\scripts\start-demo.ps1 -Port COM3 # 用真 Arduino(接好線後)
+.\scripts\start-demo.ps1 -Edge      # 用 Edge --app 模式(像獨立 app)
+.\scripts\stop-demo.ps1             # 一鍵停
+```
+
+`start-demo.ps1` 會在兩個獨立 PowerShell 視窗起 gateway + bridge,方便你看 log。
 
 開瀏覽器 `http://127.0.0.1:18790/?token=...`(token 從 `.env.local` 讀)。
 
