@@ -227,7 +227,7 @@ const DEFAULT_RULES: Rule[] = [
   compileRule({
     id: "heat_sustained",
     severity: "warn",
-    when: { metric: "temp_c", op: ">", value: 30, window_s: 60 },
+    when: { metric: "temp_c", op: ">", value: 32, window_s: 60 },
     actuator: { device: "buzzer", state: "on", duration_ms: 1500 },
   }),
   compileRule({

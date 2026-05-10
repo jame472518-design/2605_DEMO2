@@ -1,33 +1,41 @@
 # Requires -Version 5.1
 <#
     start-demo.ps1
-    One-shot launcher for the demo2 sensor station. Starts the OpenClaw
-    gateway in its own PowerShell window, the Python bridge in another,
-    and opens the browser with the gateway token in the URL.
+    One-shot launcher for the demo2 sensor station.
 
-    Each service runs in a separate VISIBLE PowerShell window so the
-    booth operator can glance at logs (especially the gateway's
-    "judge enriched" lines) and stop with Ctrl+C cleanly.
+    Default mode (ESP32-S3-CAM, post-W3): just starts the gateway + opens
+    the browser. The ESP32 firmware (see arduino/esp32_sensor_node) connects
+    to WiFi independently and POSTs frames to the plugin — no Python bridge.
+
+    Mock mode (-Mock): spawns mock_serial.py via the Python bridge so you
+    can demo without hardware. Pass -ForceHeat to instantly trigger the
+    heat_sustained rule (handy for the booth).
+
+    Each spawned service runs in a separate visible PowerShell window so
+    the operator can glance at logs (especially "judge enriched" lines)
+    and stop with Ctrl+C cleanly.
 
     Usage:
-        # Mock data (no Arduino needed):
+        # Production (ESP32 already running on LAN):
         .\scripts\start-demo.ps1
-        .\scripts\start-demo.ps1 -ForceHeat        # mock + 5s in, 70s of 32°C
-        .\scripts\start-demo.ps1 -NoBridge         # gateway only, drive frames manually
 
-        # Real Arduino on COM3:
-        .\scripts\start-demo.ps1 -Port COM3
+        # No hardware — synthetic data via Python:
+        .\scripts\start-demo.ps1 -Mock
+        .\scripts\start-demo.ps1 -Mock -ForceHeat
+
+        # USB Arduino (legacy, pre-ESP32):
+        .\scripts\start-demo.ps1 -UsbPort COM3
 
         # Skip auto-opening the browser:
         .\scripts\start-demo.ps1 -NoBrowser
 
-    Stop with .\scripts\stop-demo.ps1 (or close each window manually).
+    Stop with .\scripts\stop-demo.ps1.
 #>
 
 param(
-    [string]$Port,           # serial port for real Arduino mode; if unset, uses mock
-    [switch]$ForceHeat,      # mock-only: hold 32°C for 70s starting 5s after launch
-    [switch]$NoBridge,       # don't start the Python bridge
+    [switch]$Mock,           # spawn Python mock bridge instead of expecting ESP32
+    [string]$UsbPort,        # legacy: spawn Python bridge with USB Arduino on this COM port
+    [switch]$ForceHeat,      # mock-only: hold 32+°C for 70s starting 5s after launch
     [switch]$NoBrowser,      # don't auto-open the dashboard
     [switch]$Edge            # use Edge --app instead of default browser
 )
@@ -40,6 +48,8 @@ function Step($msg) {
 }
 function Warn($msg) { Write-Host "!! $msg" -ForegroundColor Yellow }
 function Fail($msg) { Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
+
+$useBridge = $Mock -or $UsbPort
 
 # -- Pre-flight ------------------------------------------------------------
 
@@ -66,26 +76,25 @@ if ($port18790) {
     Fail "Port 18790 already in use (pid $($port18790.OwningProcess)). Run scripts\stop-demo.ps1 first."
 }
 
-if (-not $NoBridge) {
+if ($useBridge) {
     $py = Get-Command python -ErrorAction SilentlyContinue
     if (-not $py) {
-        Warn "python not on PATH — bridge can't start. Re-run with -NoBridge to drive frames manually, or install Python."
-        Fail "Aborting. (Use -NoBridge to bypass.)"
+        Fail "python not on PATH. Install Python or run without -Mock/-UsbPort (ESP32 mode)."
     }
     $port8765 = Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue
     if ($port8765) {
-        Fail "Port 8765 already in use (pid $($port8765.OwningProcess)). Stop the existing bridge first."
+        Fail "Port 8765 already in use (pid $($port8765.OwningProcess)). Run scripts\stop-demo.ps1 first."
     }
 }
 
 # Optional checks (warn-only)
 $ollama = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollama) {
-    Warn "ollama not on PATH — judge enrichment will fail-gracefully (alerts ship without Chinese explanation)."
+    Warn "ollama not on PATH — judge enrichment unavailable; alerts ship without Chinese explanation."
 } else {
     $hasQwen = (ollama list 2>&1 | Select-String -Quiet "qwen2:1.5b")
     if (-not $hasQwen) {
-        Warn "qwen2:1.5b not pulled. Run: ollama pull qwen2:1.5b   (alerts will ship without explanation until then)"
+        Warn "qwen2:1.5b not pulled. Run: ollama pull qwen2:1.5b   (alerts ship without explanation until then)"
     }
 }
 
@@ -100,11 +109,10 @@ if (-not $token) { Fail "OPENCLAW_GATEWAY_TOKEN missing in $envPath" }
 Step "Launching gateway in a new window"
 
 $gatewayCmd = "Set-Location '$repo'; " +
-              "Write-Host 'demo2 gateway window — Ctrl+C to stop.' -ForegroundColor Cyan; " +
+              "Write-Host 'demo2 gateway window - Ctrl+C to stop.' -ForegroundColor Cyan; " +
               "openclaw --profile strixdemo2 gateway --port 18790 --verbose"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $gatewayCmd | Out-Null
 
-# Poll until gateway responds
 $ready = $false
 for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Milliseconds 500
@@ -113,27 +121,23 @@ for ($i = 0; $i -lt 40; $i++) {
             -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
         if ($r.StatusCode -eq 200) { $ready = $true; break }
     } catch {
-        # Connection refused or 401 — keep polling. 401 means up but auth failing
-        # (different problem; let it surface in the gateway window). Time-bound below.
         if ($_.Exception.Message -match "401") { $ready = $true; break }
     }
 }
 if (-not $ready) { Fail "Gateway didn't respond on :18790 within 20s. Check the gateway window for errors." }
 Write-Host "    gateway ready"
 
-# -- Launch bridge ---------------------------------------------------------
+# -- Launch bridge (only in mock or USB mode) ------------------------------
 
-if (-not $NoBridge) {
-    Step "Launching Python bridge in a new window"
-    $bridgeArgs = if ($Port) { "--port $Port" } else { "--mock" }
+if ($useBridge) {
+    Step "Launching Python bridge"
+    $bridgeArgs = if ($UsbPort) { "--port $UsbPort" } else { "--mock" }
     if ($ForceHeat) { $bridgeArgs += " --force-heat" }
     $bridgeCmd = "Set-Location '$repo'; " +
-                 "Write-Host 'demo2 bridge window — Ctrl+C to stop.' -ForegroundColor Cyan; " +
+                 "Write-Host 'demo2 bridge window - Ctrl+C to stop.' -ForegroundColor Cyan; " +
                  "python bridge\bridge.py $bridgeArgs"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $bridgeCmd | Out-Null
     Write-Host "    bridge started ($bridgeArgs)"
-} else {
-    Write-Host "    -NoBridge: skipping Python bridge"
 }
 
 # -- Open browser ----------------------------------------------------------
@@ -166,14 +170,20 @@ Write-Host "  Dashboard URL : $url"
 Write-Host "  LAN URL       : http://<this-PC-LAN-IP>:18790/?token=$token"
 Write-Host "                  (run 'ipconfig' to find your LAN IP)"
 Write-Host ""
-Write-Host "  Stop          : .\scripts\stop-demo.ps1"
-Write-Host "                  (or Ctrl+C in each spawned window)"
-Write-Host ""
-Write-Host "  What you should see:"
-Write-Host "    - 5 sensor cards filling with values + sparklines (1Hz)"
-if ($ForceHeat) {
-    Write-Host "    - heat_sustained alert ~70s in (forced via --force-heat)"
+if (-not $useBridge) {
+    Write-Host "  Source        : ESP32 (over WiFi)"
+    Write-Host "                  Power up the ESP32; it connects to WiFi and"
+    Write-Host "                  POSTs sensor frames to /api/sensor/ingest."
+    Write-Host "                  Dashboard's CameraCard polls /api/device-info"
+    Write-Host "                  for the ESP32's IP and embeds the MJPEG stream."
+} elseif ($Mock) {
+    Write-Host "  Source        : Python mock_serial (1Hz synthetic data)"
+    if ($ForceHeat) {
+        Write-Host "                  -ForceHeat: heat_sustained will fire ~70s in"
+    }
+} else {
+    Write-Host "  Source        : USB Arduino on $UsbPort"
 }
-Write-Host "    - night_intrusion alert when mock PIR fires + lux is low"
-Write-Host "    - judge-1 (qwen2:1.5b) enriches each alert with Chinese in ~2-5s"
+Write-Host ""
+Write-Host "  Stop          : .\scripts\stop-demo.ps1"
 Write-Host "============================================================"

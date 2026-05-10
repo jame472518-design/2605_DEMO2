@@ -16,9 +16,11 @@
 # 支援的 op:>, <, >=, <=, ==, !=
 
 rules:
+  # heat_sustained:DHT11 ±2°C 誤差,所以閾值 32 比 30 安全(28°C 室溫不會誤觸)。
+  # 用體溫貼住 sensor 30 秒就會 fire,booth demo 容易觸發。
   - id: heat_sustained
     severity: warn
-    when: { metric: temp_c, op: ">", value: 30, window_s: 60 }
+    when: { metric: temp_c, op: ">", value: 32, window_s: 60 }
     actuator: { device: buzzer, state: "on", duration_ms: 1500 }
 
   - id: night_intrusion

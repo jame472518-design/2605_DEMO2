@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { ActuatorControls } from "./components/ActuatorControls";
 import { AlertBanner } from "./components/AlertBanner";
+import { CameraCard } from "./components/CameraCard";
 import { JudgePanel } from "./components/JudgePanel";
 import { SensorCard } from "./components/SensorCard";
 import { useSse } from "./lib/sse";
@@ -56,6 +57,10 @@ export default function App() {
       </header>
 
       <AlertBanner alert={latestAlert} />
+
+      <div className="mb-3 md:mb-4">
+        <CameraCard />
+      </div>
 
       <main className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-4">
         <SensorCard

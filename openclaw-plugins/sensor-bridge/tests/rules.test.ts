@@ -28,7 +28,7 @@ describe("RuleEngine", () => {
       const engine = new RuleEngine();
       // Feed 60 hot frames covering [0..59s] = 59 seconds of evidence.
       for (let i = 0; i < 60; i++) {
-        const fired = engine.ingest(frame(i, { temp_c: 31 }));
+        const fired = engine.ingest(frame(i, { temp_c: 33 }));
         expect(fired.find((a) => a.rule === "heat_sustained")).toBeUndefined();
       }
     });
@@ -38,7 +38,7 @@ describe("RuleEngine", () => {
       let fired: ReturnType<RuleEngine["ingest"]> = [];
       // Feed 61 frames at [0..60s] = 60 seconds of evidence — boundary case.
       for (let i = 0; i <= 60; i++) {
-        fired = engine.ingest(frame(i, { temp_c: 31 }));
+        fired = engine.ingest(frame(i, { temp_c: 33 }));
       }
       const heat = fired.find((a) => a.rule === "heat_sustained");
       expect(heat).toBeDefined();
@@ -50,7 +50,7 @@ describe("RuleEngine", () => {
       const engine = new RuleEngine();
       let fireCount = 0;
       for (let i = 0; i <= 90; i++) {
-        const fired = engine.ingest(frame(i, { temp_c: 31 }));
+        const fired = engine.ingest(frame(i, { temp_c: 33 }));
         fireCount += fired.filter((a) => a.rule === "heat_sustained").length;
       }
       expect(fireCount).toBe(1);
@@ -61,7 +61,7 @@ describe("RuleEngine", () => {
       let fireCount = 0;
       // Hot for 65s → fire once
       for (let i = 0; i <= 65; i++) {
-        fireCount += engine.ingest(frame(i, { temp_c: 31 }))
+        fireCount += engine.ingest(frame(i, { temp_c: 33 }))
           .filter((a) => a.rule === "heat_sustained").length;
       }
       expect(fireCount).toBe(1);
@@ -71,7 +71,7 @@ describe("RuleEngine", () => {
       }
       // Hot again for 65s → fire again
       for (let i = 71; i <= 136; i++) {
-        fireCount += engine.ingest(frame(i, { temp_c: 31 }))
+        fireCount += engine.ingest(frame(i, { temp_c: 33 }))
           .filter((a) => a.rule === "heat_sustained").length;
       }
       expect(fireCount).toBe(2);

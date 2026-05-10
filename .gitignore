@@ -45,3 +45,6 @@ openclaw-workspaces/*/USER.md
 # Arduino IDE artifacts
 arduino/**/build/
 *.ino.cpp
+
+# ESP32 firmware secrets — never commit WiFi passwords or gateway tokens
+arduino/**/secrets.h

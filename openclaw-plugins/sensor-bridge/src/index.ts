@@ -129,6 +129,19 @@ export default definePluginEntry({
 
     const sensorSse = new SseChannel({ replayLast: 1 });
     const alertSse = new SseChannel({ replayLast: 5 });
+
+    // Last-seen device cache. ESP32 firmware sets device_ip in every frame so
+    // the plugin can POST actuator commands back to it (port 80) and the
+    // dashboard can <img> the camera stream (port 81). TTL = 60s; after that
+    // we fall back to the legacy bridgeUrl env (Python USB-bridge dev mode).
+    const DEVICE_TTL_MS = 60_000;
+    let lastDevice: { ip: string; id: string | null; ts: number } | null = null;
+    const isDeviceFresh = () =>
+      lastDevice !== null && Date.now() - lastDevice.ts < DEVICE_TTL_MS;
+    const getActuatorTarget = (): string => {
+      if (isDeviceFresh()) return `http://${lastDevice!.ip}/cmd`;
+      return `${bridgeUrl.replace(/\/$/, "")}/cmd`;
+    };
     // Try rules.yaml shipped alongside the plugin; fall back to built-in
     // defaults if the file is missing (still safe — defaults match yaml).
     const pluginRoot = path.dirname(staticDir);
@@ -188,6 +201,13 @@ export default definePluginEntry({
           return true;
         }
         const frame = body.value;
+        if (frame.device_ip) {
+          lastDevice = {
+            ip: frame.device_ip,
+            id: frame.device_id ?? null,
+            ts: Date.now(),
+          };
+        }
         sensorSse.broadcast(frame);
         const fired = engine.ingest(frame);
         for (const alert of fired) {
@@ -197,7 +217,7 @@ export default definePluginEntry({
           );
           const actuator = engine.getActuator(alert.rule);
           if (actuator) {
-            void sendActuator(bridgeUrl, actuator as ActuatorCommand, log);
+            void sendActuator(getActuatorTarget(), actuator as ActuatorCommand, log);
           }
           // Async enrichment: same alert id re-broadcast with explanation
           // populated. UI dedups by id and replaces the stale v1.
@@ -280,8 +300,34 @@ export default definePluginEntry({
           writeJson(res, 400, { ok: false, error: "device must be 'buzzer' or 'led'" });
           return true;
         }
-        await sendActuator(bridgeUrl, cmd, log);
+        await sendActuator(getActuatorTarget(), cmd, log);
         writeJson(res, 200, { ok: true });
+        return true;
+      },
+    });
+
+    // GET /api/device-info — dashboard polls this to learn the ESP32's IP so
+    // it can build the camera <img src=http://<ip>:81/stream> URL. Returns
+    // null fields when no recent device frame has arrived (mock dev mode).
+    api.registerHttpRoute({
+      path: "/api/device-info",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method !== "GET") {
+          writeJson(res, 405, { ok: false, error: "method not allowed" });
+          return true;
+        }
+        if (!requireToken(req, res)) return true;
+        const fresh = isDeviceFresh();
+        const dev = fresh ? lastDevice : null;
+        writeJson(res, 200, {
+          device_ip: dev?.ip ?? null,
+          device_id: dev?.id ?? null,
+          last_seen: dev ? new Date(dev.ts).toISOString() : null,
+          camera_stream_url: dev ? `http://${dev.ip}:81/stream` : null,
+          ttl_ms: DEVICE_TTL_MS,
+        });
         return true;
       },
     });
