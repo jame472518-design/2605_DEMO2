@@ -71,9 +71,13 @@ if (-not (Test-Path $staticIndex)) {
     Fail "Dashboard SPA bundle missing. Run 'cd dashboard; pnpm run build' then scripts\install-plugins.ps1"
 }
 
-$port18790 = Get-NetTCPConnection -LocalPort 18790 -ErrorAction SilentlyContinue
+# Filter by State=Listen — TIME_WAIT / ESTABLISHED entries from old client
+# connections have OwningProcess=0 and don't block re-binding the port. Only
+# a real LISTENing process is a problem.
+$port18790 = Get-NetTCPConnection -LocalPort 18790 -State Listen -ErrorAction SilentlyContinue
 if ($port18790) {
-    Fail "Port 18790 already in use (pid $($port18790.OwningProcess)). Run scripts\stop-demo.ps1 first."
+    $pid18790 = ($port18790 | Select-Object -First 1).OwningProcess
+    Fail "Port 18790 already in use (pid $pid18790). Run scripts\stop-demo.ps1 first."
 }
 
 if ($useBridge) {
@@ -81,9 +85,10 @@ if ($useBridge) {
     if (-not $py) {
         Fail "python not on PATH. Install Python or run without -Mock/-UsbPort (ESP32 mode)."
     }
-    $port8765 = Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue
+    $port8765 = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
     if ($port8765) {
-        Fail "Port 8765 already in use (pid $($port8765.OwningProcess)). Run scripts\stop-demo.ps1 first."
+        $pid8765 = ($port8765 | Select-Object -First 1).OwningProcess
+        Fail "Port 8765 already in use (pid $pid8765). Run scripts\stop-demo.ps1 first."
     }
 }
 

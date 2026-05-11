@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>demo2 — Camera Debug</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #0b0d10;
+        color: #e5e7eb;
+        font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      h1 {
+        font-size: 14px;
+        letter-spacing: 0.32em;
+        color: #06b6d4;
+        margin: 0 0 16px;
+      }
+      h2 {
+        font-size: 11px;
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        color: #6b7280;
+        margin: 24px 0 6px;
+        border-bottom: 1px solid #252a32;
+        padding-bottom: 4px;
+      }
+      pre {
+        background: #13161b;
+        border: 1px solid #252a32;
+        padding: 10px 12px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 11.5px;
+      }
+      button {
+        background: #13161b;
+        color: #e5e7eb;
+        border: 1px solid #252a32;
+        padding: 8px 12px;
+        margin: 4px 6px 4px 0;
+        font-family: inherit;
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #1c2026;
+        border-color: #3a4150;
+      }
+      button.go {
+        border-color: #06b6d4;
+        color: #06b6d4;
+      }
+      button.go:hover {
+        background: rgba(6, 182, 212, 0.1);
+      }
+      .ok {
+        color: #10b981;
+      }
+      .warn {
+        color: #facc15;
+      }
+      .err {
+        color: #ef4444;
+      }
+      video {
+        width: 320px;
+        height: 240px;
+        background: #000;
+        border: 1px solid #252a32;
+        margin: 8px 8px 0 0;
+      }
+      select {
+        background: #13161b;
+        color: #e5e7eb;
+        border: 1px solid #252a32;
+        padding: 6px 8px;
+        font-family: inherit;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>◉ DEMO2 — CAMERA DEBUG</h1>
+
+    <h2>環境</h2>
+    <pre id="env"></pre>
+
+    <h2>權限狀態</h2>
+    <pre id="perm">probing…</pre>
+
+    <h2>enumerateDevices (videoinput)</h2>
+    <pre id="devs">enumerating…</pre>
+    <button onclick="refreshDevs()">↻ REFRESH</button>
+
+    <h2>嘗試 getUserMedia</h2>
+    <button class="go" onclick="testGUM({ video: true })">
+      ▸ TRY {video:true}
+    </button>
+    <button onclick="testGUM({ video: { facingMode: 'user' } })">
+      ▸ TRY {facingMode:user}
+    </button>
+    <button onclick="testGUMSelected()">▸ TRY SELECTED DEVICE</button>
+    <select id="devSelect"></select>
+    <pre id="gumLog">尚未嘗試</pre>
+
+    <h2>畫面</h2>
+    <div id="videos"></div>
+
+    <script>
+      const $env = document.getElementById("env");
+      const $perm = document.getElementById("perm");
+      const $devs = document.getElementById("devs");
+      const $log = document.getElementById("gumLog");
+      const $videos = document.getElementById("videos");
+      const $select = document.getElementById("devSelect");
+
+      function log(line, cls) {
+        const ts = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+        const span = cls ? `<span class="${cls}">${line}</span>` : line;
+        $log.innerHTML = `[${ts}] ${span}\n` + $log.innerHTML;
+      }
+
+      // ----- Environment ------------------------------------------------
+      const ua = navigator.userAgent;
+      const secure = window.isSecureContext;
+      const hasMD = !!navigator.mediaDevices;
+      const hasGUM = !!navigator.mediaDevices?.getUserMedia;
+      const hasEnum = !!navigator.mediaDevices?.enumerateDevices;
+      const hasPerm = !!navigator.permissions?.query;
+      $env.innerHTML = [
+        `URL: ${location.href}`,
+        `origin: ${location.origin}`,
+        `secure context: ${secure ? '<span class="ok">true</span>' : '<span class="err">false</span>'}`,
+        `navigator.mediaDevices: ${hasMD}`,
+        `  .getUserMedia: ${hasGUM}`,
+        `  .enumerateDevices: ${hasEnum}`,
+        `navigator.permissions.query: ${hasPerm}`,
+        ``,
+        `userAgent:`,
+        `  ${ua}`,
+      ].join("\n");
+
+      // ----- Permissions API --------------------------------------------
+      (async () => {
+        if (!hasPerm) {
+          $perm.textContent = "Permissions API 不可用";
+          return;
+        }
+        try {
+          const r = await navigator.permissions.query({ name: "camera" });
+          const stateColor =
+            r.state === "granted"
+              ? "ok"
+              : r.state === "denied"
+                ? "err"
+                : "warn";
+          $perm.innerHTML = `state: <span class="${stateColor}">${r.state}</span>`;
+          r.onchange = () => {
+            $perm.innerHTML += `\n→ changed to <span class="${r.state === "granted" ? "ok" : r.state === "denied" ? "err" : "warn"}">${r.state}</span>`;
+          };
+        } catch (e) {
+          $perm.innerHTML = `<span class="err">query failed:</span> ${e}`;
+        }
+      })();
+
+      // ----- enumerateDevices -------------------------------------------
+      async function refreshDevs() {
+        if (!hasEnum) {
+          $devs.textContent = "enumerateDevices 不可用";
+          return;
+        }
+        try {
+          const list = await navigator.mediaDevices.enumerateDevices();
+          const cams = list.filter((d) => d.kind === "videoinput");
+          if (cams.length === 0) {
+            $devs.innerHTML = '<span class="warn">沒掃到 videoinput device</span>';
+          } else {
+            $devs.innerHTML = cams
+              .map(
+                (d, i) =>
+                  `[${i}] kind=videoinput\n    label="${d.label || "(隱藏 — 尚未授權)"}"\n    deviceId=${d.deviceId.slice(0, 16)}…`,
+              )
+              .join("\n\n");
+            $select.innerHTML = cams
+              .map(
+                (d, i) =>
+                  `<option value="${d.deviceId}">[${i}] ${d.label || "(隱藏)"}</option>`,
+              )
+              .join("");
+          }
+        } catch (e) {
+          $devs.innerHTML = `<span class="err">enumerateDevices failed:</span> ${e}`;
+        }
+      }
+      refreshDevs();
+      navigator.mediaDevices?.addEventListener?.("devicechange", refreshDevs);
+
+      // ----- getUserMedia tests -----------------------------------------
+      const streams = [];
+      window.addEventListener("beforeunload", () => {
+        streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      });
+
+      async function testGUM(constraints) {
+        log(`getUserMedia(${JSON.stringify(constraints)})…`);
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          streams.push(stream);
+          const tracks = stream
+            .getVideoTracks()
+            .map((t) => `${t.label || "(no label)"} [${t.readyState}]`)
+            .join(", ");
+          log(`<span class="ok">OK</span> — tracks: ${tracks}`);
+          // Render video
+          const video = document.createElement("video");
+          video.autoplay = true;
+          video.playsInline = true;
+          video.muted = true;
+          video.srcObject = stream;
+          $videos.appendChild(video);
+          // Refresh device list (labels now available)
+          refreshDevs();
+        } catch (e) {
+          log(
+            `<span class="err">${e.name}</span> — ${e.message}`,
+            "err",
+          );
+        }
+      }
+
+      function testGUMSelected() {
+        const id = $select.value;
+        if (!id) {
+          log("先 enumerate 拿到 device 才能選");
+          return;
+        }
+        testGUM({ video: { deviceId: { exact: id } }, audio: false });
+      }
+    </script>
+  </body>
+</html>
