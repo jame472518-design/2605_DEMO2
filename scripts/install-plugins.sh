@@ -62,14 +62,18 @@ for plugin_src in "$PLUGINS_ROOT"/*/; do
         else
             echo "[$name] (no dashboard/dist found — run 'cd dashboard && pnpm run build' first)"
         fi
-        judge_ws="$REPO_ROOT/openclaw-workspaces/judge-1"
-        if [ -d "$judge_ws" ]; then
-            prompt_dst="$dst/judge-prompt"
-            mkdir -p "$prompt_dst"
-            [ -f "$judge_ws/SOUL.md" ] && cp "$judge_ws/SOUL.md" "$prompt_dst/"
-            [ -f "$judge_ws/AGENTS.md" ] && cp "$judge_ws/AGENTS.md" "$prompt_dst/"
-            echo "[$name] copied judge-1 prompt -> $prompt_dst"
-        fi
+        for pair in "judge-1:judge-prompt" "vision-1:vision-prompt"; do
+            agent_id="${pair%%:*}"
+            dst_name="${pair##*:}"
+            ws_path="$REPO_ROOT/openclaw-workspaces/$agent_id"
+            if [ -d "$ws_path" ]; then
+                prompt_dst="$dst/$dst_name"
+                mkdir -p "$prompt_dst"
+                [ -f "$ws_path/SOUL.md" ] && cp "$ws_path/SOUL.md" "$prompt_dst/"
+                [ -f "$ws_path/AGENTS.md" ] && cp "$ws_path/AGENTS.md" "$prompt_dst/"
+                echo "[$name] copied $agent_id prompt -> $prompt_dst"
+            fi
+        done
     fi
 done
 

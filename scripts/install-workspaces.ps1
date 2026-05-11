@@ -22,9 +22,9 @@ if (-not (Test-Path $configPath)) {
     Write-Error "Profile config not found: $configPath`nRun bootstrap-profile.ps1 first."
 }
 
-# demo2 has exactly one agent. Easy to extend later.
 $expectedAgents = @(
-    @{ id = "judge-1" ; workspace = (Join-Path $wsRoot "judge-1") }
+    @{ id = "judge-1"  ; workspace = (Join-Path $wsRoot "judge-1")  }
+    @{ id = "vision-1" ; workspace = (Join-Path $wsRoot "vision-1") }
 )
 
 # Make sure each workspace dir exists (the markdown files were authored by

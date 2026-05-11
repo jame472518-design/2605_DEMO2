@@ -29,19 +29,25 @@ foreach ($p in $plugins) {
     if (Test-Path "$($p.FullName)\rules.yaml") {
         Copy-Item -Force "$($p.FullName)\rules.yaml" $dst
     }
-    # judge-prompt: copy SOUL.md + AGENTS.md from the judge-1 workspace into
-    # the sensor-bridge plugin install dir so judge.ts can read them as the
-    # system prompt at startup. (Only sensor-bridge needs this.)
+    # judge-prompt / vision-prompt: copy SOUL.md + AGENTS.md from each agent
+    # workspace into the sensor-bridge plugin install dir so judge.ts /
+    # vision.ts can read them as system prompts at startup. (Only sensor-bridge
+    # needs these.)
     if ($p.Name -eq "sensor-bridge") {
-        $judgeWs = Resolve-Path "$PSScriptRoot\..\openclaw-workspaces\judge-1" -ErrorAction SilentlyContinue
-        if ($judgeWs) {
-            $promptDst = Join-Path $dst "judge-prompt"
-            New-Item -ItemType Directory -Force -Path $promptDst | Out-Null
-            foreach ($f in @("SOUL.md", "AGENTS.md")) {
-                $src = Join-Path $judgeWs $f
-                if (Test-Path $src) { Copy-Item -Force $src $promptDst }
+        foreach ($pair in @(
+            @{ id = "judge-1"  ; dstName = "judge-prompt"  },
+            @{ id = "vision-1" ; dstName = "vision-prompt" }
+        )) {
+            $wsPath = Resolve-Path "$PSScriptRoot\..\openclaw-workspaces\$($pair.id)" -ErrorAction SilentlyContinue
+            if ($wsPath) {
+                $promptDst = Join-Path $dst $pair.dstName
+                New-Item -ItemType Directory -Force -Path $promptDst | Out-Null
+                foreach ($f in @("SOUL.md", "AGENTS.md")) {
+                    $src = Join-Path $wsPath $f
+                    if (Test-Path $src) { Copy-Item -Force $src $promptDst }
+                }
+                Write-Host "[$($p.Name)] copied $($pair.id) prompt -> $promptDst"
             }
-            Write-Host "[$($p.Name)] copied judge-1 prompt -> $promptDst"
         }
     }
 

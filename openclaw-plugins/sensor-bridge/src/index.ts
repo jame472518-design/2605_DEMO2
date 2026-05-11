@@ -12,6 +12,7 @@ import { RuleEngine } from "./rules.js";
 import { SseChannel } from "./sse.js";
 import { servePlaceholder, serveStatic } from "./static.js";
 import { isSensorFrame, type ActuatorCommand } from "./types.js";
+import { Vision } from "./vision.js";
 
 /**
  * Plugin runtime knobs are read from process.env, NOT from plugins.entries.<id>.*
@@ -22,7 +23,8 @@ import { isSensorFrame, type ActuatorCommand } from "./types.js";
  *   OPENCLAW_DEMO2_STATIC_DIR     — override SPA path (default: <plugin>/static)
  *   OPENCLAW_DEMO2_BRIDGE_URL     — Python bridge base URL (default: http://127.0.0.1:8765)
  *   OPENCLAW_DEMO2_OLLAMA_URL     — Ollama HTTP API URL (default: http://127.0.0.1:11434)
- *   OPENCLAW_DEMO2_JUDGE_MODEL    — Ollama model id (default: qwen2:1.5b)
+ *   OPENCLAW_DEMO2_JUDGE_MODEL    — Ollama model id for judge-1 (default: qwen2:1.5b)
+ *   OPENCLAW_DEMO2_VISION_MODEL   — Ollama VLM id for vision-1 (default: qwen2.5vl:3b)
  */
 
 const PLUGIN_ID = "sensor-bridge";
@@ -118,6 +120,7 @@ export default definePluginEntry({
     const bridgeUrl = env.OPENCLAW_DEMO2_BRIDGE_URL ?? "http://127.0.0.1:8765";
     const ollamaBaseUrl = env.OPENCLAW_DEMO2_OLLAMA_URL ?? "http://127.0.0.1:11434";
     const judgeModel = env.OPENCLAW_DEMO2_JUDGE_MODEL ?? "qwen2:1.5b";
+    const visionModel = env.OPENCLAW_DEMO2_VISION_MODEL ?? "qwen2.5vl:3b";
     const log = api.logger;
     const expectedToken = resolveGatewayToken(api);
 
@@ -166,6 +169,16 @@ export default definePluginEntry({
       promptDir: path.join(pluginRoot, "judge-prompt"),
     });
     log.info(`[${PLUGIN_ID}] judge: ollama=${ollamaBaseUrl} model=${judgeModel}`);
+
+    // Vision: per-click webcam frame describer. Bound to the dashboard's
+    // "describe scene" button via POST /api/vision/describe. Same direct-
+    // Ollama strategy as Judge.
+    const vision = new Vision({
+      ollamaBaseUrl,
+      model: visionModel,
+      promptDir: path.join(pluginRoot, "vision-prompt"),
+    });
+    log.info(`[${PLUGIN_ID}] vision: ollama=${ollamaBaseUrl} model=${visionModel}`);
 
     const requireToken = (req: IncomingMessage, res: ServerResponse): boolean => {
       if (!expectedToken) {
@@ -306,6 +319,49 @@ export default definePluginEntry({
       },
     });
 
+    // POST /api/vision/describe — dashboard "describe scene" button. Body:
+    //   { image_b64: string, source_label?: string }
+    // Returns { description, took_ms } on success, 503 on agent failure.
+    api.registerHttpRoute({
+      path: "/api/vision/describe",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method !== "POST") {
+          writeJson(res, 405, { ok: false, error: "method not allowed" });
+          return true;
+        }
+        if (!requireToken(req, res)) return true;
+        // Allow up to 2MB body (base64 of ~1.5MB image). UI downscales to
+        // 640x480 q70 which is typically <60KB b64, so this is a wide cap.
+        const body = await readJsonBody(req, 2 * 1024 * 1024);
+        if (!body.ok) {
+          writeJson(res, 400, { ok: false, error: body.error });
+          return true;
+        }
+        const payload = body.value as { image_b64?: unknown; source_label?: unknown };
+        const img = typeof payload.image_b64 === "string" ? payload.image_b64 : "";
+        if (img.length === 0) {
+          writeJson(res, 400, { ok: false, error: "image_b64 required" });
+          return true;
+        }
+        const label = typeof payload.source_label === "string" ? payload.source_label : undefined;
+        const t0 = Date.now();
+        const reply = await vision.describe(img, label, log);
+        const dt = Date.now() - t0;
+        if (!reply) {
+          log.warn(`[${PLUGIN_ID}] vision describe failed after ${dt}ms (label=${label ?? "-"})`);
+          writeJson(res, 503, { ok: false, error: "vision agent unavailable", took_ms: dt });
+          return true;
+        }
+        log.info(
+          `[${PLUGIN_ID}] vision described ${label ?? "webcam"} in ${dt}ms — "${reply.description}"`,
+        );
+        writeJson(res, 200, { ok: true, description: reply.description, took_ms: dt });
+        return true;
+      },
+    });
+
     // GET /api/device-info — dashboard polls this to learn the ESP32's IP so
     // it can build the camera <img src=http://<ip>:81/stream> URL. Returns
     // null fields when no recent device frame has arrived (mock dev mode).
@@ -372,7 +428,7 @@ export default definePluginEntry({
     });
 
     log.info(
-      `[${PLUGIN_ID}] registered: POST /api/sensor/ingest, GET /api/sensor/stream, GET /api/alert/stream, POST /api/actuator, GET / + /static/* (staticDir=${staticDir}, bridgeUrl=${bridgeUrl})`,
+      `[${PLUGIN_ID}] registered: POST /api/sensor/ingest, GET /api/sensor/stream, GET /api/alert/stream, POST /api/actuator, POST /api/vision/describe, GET /api/device-info, GET / + /static/* (staticDir=${staticDir}, bridgeUrl=${bridgeUrl})`,
     );
   },
 });

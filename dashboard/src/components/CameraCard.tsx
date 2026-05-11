@@ -392,6 +392,12 @@ type FeedState =
   | "insecure"
   | "error";
 
+type VisionState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; description: string; took_ms: number }
+  | { kind: "error"; message: string };
+
 function WebcamFeed({
   deviceId,
   label,
@@ -406,6 +412,67 @@ function WebcamFeed({
   const [state, setState] = useState<FeedState>("checking");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [activeLabel, setActiveLabel] = useState<string>(label);
+  const [vision, setVision] = useState<VisionState>({ kind: "idle" });
+
+  // Capture current frame → POST to vision-1 agent → show 1-sentence
+  // Chinese description as an overlay strip. Doesn't pause the stream.
+  const describeScene = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || !streamRef.current || v.videoWidth === 0) return;
+    setVision({ kind: "loading" });
+    const maxW = 640;
+    const scale = Math.min(1, maxW / v.videoWidth);
+    const w = Math.round(v.videoWidth * scale);
+    const h = Math.round(v.videoHeight * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setVision({ kind: "error", message: "canvas 2D 不支援" });
+      return;
+    }
+    ctx.drawImage(v, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+    try {
+      const token = gatewayToken();
+      const url = new URL("/api/vision/describe", window.location.origin);
+      if (token) url.searchParams.set("token", token);
+      const r = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_b64: dataUrl,
+          source_label: activeLabel,
+        }),
+      });
+      const data = (await r.json()) as {
+        ok?: boolean;
+        description?: string;
+        took_ms?: number;
+        error?: string;
+      };
+      if (!r.ok || !data.ok) {
+        setVision({
+          kind: "error",
+          message: data.error ?? `HTTP ${r.status}`,
+        });
+      } else if (data.description) {
+        setVision({
+          kind: "ok",
+          description: data.description,
+          took_ms: data.took_ms ?? 0,
+        });
+      } else {
+        setVision({ kind: "error", message: "agent 回應為空" });
+      }
+    } catch (e) {
+      setVision({
+        kind: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }, [activeLabel]);
 
   // Pause = release MediaStream tracks. Camera LED turns off; resume calls
   // getUserMedia again (no permission re-prompt since browser remembers grant).
@@ -557,13 +624,61 @@ function WebcamFeed({
               className="w-full h-full object-cover"
             />
             <HudOverlay label={hudLabel} meta="getUserMedia" rec />
-            <button
-              type="button"
-              onClick={pause}
-              className="absolute top-2 right-2 z-20 border border-accent-warn/70 bg-ink-950/70 text-accent-warn hover:bg-accent-warn/20 px-2 py-1 text-[10px] tracking-widest font-mono"
-            >
-              ⏸ PAUSE
-            </button>
+            <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={describeScene}
+                disabled={vision.kind === "loading"}
+                title="拍一張交給 vision-1 agent 寫一句中文描述"
+                className="border border-accent-info/70 bg-ink-950/70 text-accent-info hover:bg-accent-info/20 disabled:opacity-50 disabled:cursor-wait px-2 py-1 text-[10px] tracking-widest font-mono"
+              >
+                {vision.kind === "loading" ? "⋯ SCANNING" : "👁 SCAN"}
+              </button>
+              <button
+                type="button"
+                onClick={pause}
+                className="border border-accent-warn/70 bg-ink-950/70 text-accent-warn hover:bg-accent-warn/20 px-2 py-1 text-[10px] tracking-widest font-mono"
+              >
+                ⏸ PAUSE
+              </button>
+            </div>
+            {vision.kind !== "idle" && (
+              <div className="absolute bottom-0 left-0 right-0 z-10 bg-ink-950/85 border-t border-accent-info/40 backdrop-blur-sm">
+                <div className="flex items-start gap-2 p-2">
+                  <span className="text-[10px] tracking-widest text-accent-info font-mono mt-0.5 shrink-0">
+                    👁 VISION-1
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    {vision.kind === "loading" ? (
+                      <p className="text-xs text-smoke-300 font-han animate-pulse-dot">
+                        agent 分析中… (VLM 約 5-60 秒,首次更久)
+                      </p>
+                    ) : vision.kind === "ok" ? (
+                      <>
+                        <p className="text-sm text-smoke-100 font-han leading-relaxed">
+                          {vision.description}
+                        </p>
+                        <p className="text-[10px] tracking-widest text-smoke-500 font-mono mt-0.5">
+                          {(vision.took_ms / 1000).toFixed(1)}s · qwen2.5vl
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-accent-danger font-mono break-all">
+                        {vision.message}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setVision({ kind: "idle" })}
+                    className="text-smoke-500 hover:text-smoke-100 text-base leading-none font-mono shrink-0"
+                    title="關閉"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         ) : state === "paused" ? (
           <>
@@ -605,24 +720,15 @@ function WebcamFeed({
                     PERMISSION DENIED
                   </p>
                   <p className="text-xs text-smoke-300 font-han mb-3 leading-relaxed">
-                    若你在 <b className="text-smoke-100">Snapdragon X / Windows on ARM</b> 機台 — 這是已知的 Chromium 限制,所有瀏覽器旗標都繞不過,**在 Strix Halo (x86_64) 機台上會自動運作**。
+                    OpenClaw gateway 送的{" "}
+                    <code className="text-smoke-100">Permissions-Policy</code>{" "}
+                    header 會擋掉 Chromium 系列瀏覽器的 webcam 權限。
+                    <b className="text-accent-info">請改用 Firefox</b>{" "}
+                    開這個 dashboard,webcam 就能正常授權。
                   </p>
-                  <p className="text-[11px] tracking-widest text-smoke-500 font-mono mb-2">
-                    NORMAL DESKTOP FIX:
+                  <p className="text-[10px] tracking-widest text-smoke-500 font-mono mb-3">
+                    (ESP32 鏡頭、感測器、Judge agent 任何瀏覽器都正常)
                   </p>
-                  <ol className="text-xs text-smoke-400 text-left font-han space-y-1 mb-3 list-decimal list-inside">
-                    <li>
-                      開無痕視窗{" "}
-                      <code className="text-smoke-200">Ctrl+Shift+N</code>,貼
-                      dashboard URL → 秒跳對話框
-                    </li>
-                    <li>
-                      <code className="text-smoke-200">
-                        edge://settings/content/all
-                      </code>{" "}
-                      搜 127.0.0.1 → 全刪
-                    </li>
-                  </ol>
                   <button
                     type="button"
                     onClick={start}
