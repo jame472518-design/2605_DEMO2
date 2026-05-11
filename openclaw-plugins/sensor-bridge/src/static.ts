@@ -78,6 +78,14 @@ async function streamFile(absolute: string, res: ServerResponse): Promise<boolea
   res.statusCode = 200;
   res.setHeader("Content-Type", MIME[ext] ?? "application/octet-stream");
   res.setHeader("Cache-Control", "no-cache");
+  // Override OpenClaw gateway's default `camera=()` Permissions-Policy header
+  // for pages we serve, so the loaded dashboard SPA can call getUserMedia for
+  // the local-webcam fallback path. Without this, every browser on every
+  // platform returns NotAllowedError before even showing the consent dialog.
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(self), microphone=(self), display-capture=(self), geolocation=(self)",
+  );
   await new Promise<void>((resolve, reject) => {
     const stream = createReadStream(absolute);
     stream.on("error", reject);
@@ -91,6 +99,10 @@ export function servePlaceholder(res: ServerResponse): boolean {
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(self), microphone=(self), display-capture=(self), geolocation=(self)",
+  );
   res.end(PLACEHOLDER_HTML);
   return true;
 }
