@@ -36,6 +36,7 @@ try {
 Start-Sleep -Seconds 1
 
 StopOnPort 18790 "gateway"
+StopOnPort 18443 "https-proxy"
 StopOnPort 8765  "bridge"
 
 Write-Host ""

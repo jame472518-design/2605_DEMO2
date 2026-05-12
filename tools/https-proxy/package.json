@@ -1,0 +1,14 @@
+{
+  "name": "demo2-https-proxy",
+  "version": "0.1.0",
+  "description": "Self-signed HTTPS reverse proxy in front of the demo2 OpenClaw gateway. Mobile Firefox refuses getUserMedia over plain HTTP on a LAN IP — this proxy adds a secure context.",
+  "private": true,
+  "type": "module",
+  "main": "proxy.mjs",
+  "scripts": {
+    "start": "node proxy.mjs"
+  },
+  "dependencies": {
+    "selfsigned": "^2.4.1"
+  }
+}

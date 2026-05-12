@@ -3,6 +3,7 @@ import { ActuatorControls } from "./components/ActuatorControls";
 import { AlertBanner } from "./components/AlertBanner";
 import { CameraCard } from "./components/CameraCard";
 import { JudgePanel } from "./components/JudgePanel";
+import { QrPanel } from "./components/QrPanel";
 import { SensorCard } from "./components/SensorCard";
 import { useSse } from "./lib/sse";
 import type { Alert, SensorFrame } from "./types";
@@ -199,6 +200,9 @@ export default function App() {
         <span>SSE · rule engine · judge-1 / qwen2:1.5b</span>
         <span className="text-smoke-500/60">demo2 · w3-esp32-prep · {new Date().toISOString().slice(0, 10)}</span>
       </footer>
+
+      {/* === FLOATING QR (booth) ========================================== */}
+      <QrPanel />
     </div>
   );
 }

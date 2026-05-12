@@ -9,6 +9,109 @@ type VisionState =
   | { kind: "ok"; description: string; took_ms: number }
   | { kind: "error"; message: string };
 
+// ---------------------------------------------------------------------------
+// "Permission denied" recovery panel — browser-aware instructions
+// ---------------------------------------------------------------------------
+
+type BrowserHint =
+  | "chrome-android"
+  | "firefox-android"
+  | "chrome-desktop"
+  | "firefox-desktop"
+  | "edge-desktop"
+  | "safari"
+  | "other";
+
+function detectBrowser(): BrowserHint {
+  if (typeof navigator === "undefined") return "other";
+  const ua = navigator.userAgent;
+  const android = /Android/i.test(ua);
+  if (/Edg\//.test(ua)) return "edge-desktop";
+  if (/Firefox/.test(ua)) return android ? "firefox-android" : "firefox-desktop";
+  if (/Chrome|Chromium|CriOS/.test(ua))
+    return android ? "chrome-android" : "chrome-desktop";
+  if (/Safari/.test(ua)) return "safari";
+  return "other";
+}
+
+const RECOVERY_STEPS: Record<BrowserHint, string[]> = {
+  "chrome-android": [
+    "點網址列**左邊**的 🔒 / 🚫 / 危險圖示",
+    "點「權限」(Permissions)",
+    "找「相機」(Camera) → 改成「允許」(Allow)",
+    "回到這個分頁,按下方的 RETRY",
+  ],
+  "firefox-android": [
+    "Firefox Android 一旦拒絕,沒有重設站台權限的 UI",
+    "請改用 Chrome 開這個 URL,或長按網址列圖示找站台設定清除",
+    "(自簽憑證的 Firefox Android 也不能 bypass,Chrome 才行)",
+  ],
+  "chrome-desktop": [
+    "點網址列左邊的 🔒 / 🚫 圖示",
+    "「網站設定」(Site settings) → 「相機」→「允許」",
+    "回到分頁按下方 RETRY",
+  ],
+  "edge-desktop": [
+    "點網址列左邊的 🔒 圖示",
+    "「此網站的權限」→「相機」→「允許」",
+    "回到分頁按下方 RETRY",
+  ],
+  "firefox-desktop": [
+    "點網址列左邊的盾牌 / 鎖頭圖示",
+    "找到「相機」這一列 → 「移除暫時封鎖」或改成「允許」",
+    "回到分頁按下方 RETRY",
+  ],
+  safari: [
+    "Safari 選單 → 「設定」(⌘,)→「網站」→「相機」",
+    "找到這個 host → 改成「允許」",
+    "回到分頁按下方 RETRY",
+  ],
+  other: [
+    "在瀏覽器網址列旁找鎖頭/權限圖示,把「相機」改成允許",
+    "回到分頁按下方 RETRY",
+  ],
+};
+
+function DeniedHelp({ onRetry }: { onRetry: () => void }) {
+  const [browser] = useState<BrowserHint>(detectBrowser);
+  const steps = RECOVERY_STEPS[browser];
+  const isAndroid = browser === "chrome-android" || browser === "firefox-android";
+  return (
+    <div className="text-center px-6 max-w-md py-4">
+      <p className="text-[10px] tracking-widest text-accent-warn font-mono mb-2">
+        PERMISSION DENIED
+      </p>
+      <p className="text-xs text-smoke-300 font-han mb-3 leading-relaxed">
+        瀏覽器擋掉了相機權限。{isAndroid ? "在手機上恢復步驟:" : "解除步驟:"}
+      </p>
+      <ol className="text-left text-xs text-smoke-300 font-han space-y-1.5 mb-4 list-decimal list-inside leading-relaxed">
+        {steps.map((s, i) => (
+          <li
+            key={i}
+            // markdown-lite: bold inside the string via **x**
+            dangerouslySetInnerHTML={{
+              __html: s.replace(
+                /\*\*(.+?)\*\*/g,
+                '<b class="text-smoke-100">$1</b>',
+              ),
+            }}
+          />
+        ))}
+      </ol>
+      <p className="text-[10px] tracking-widest text-smoke-500/70 font-mono mb-3">
+        browser: {browser}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="border border-accent-info text-accent-info hover:bg-accent-info/10 px-4 py-2 font-mono text-xs tracking-widest"
+      >
+        ▸ RETRY
+      </button>
+    </div>
+  );
+}
+
 function VisionOverlay({
   state,
   onDismiss,
@@ -57,9 +160,19 @@ function VisionOverlay({
 }
 
 const POLL_INTERVAL_MS = 30_000;
-const STORAGE_ENABLED_KEY = "demo2.cameraEnabled.v2";
+const STORAGE_ENABLED_KEY = "demo2.cameraEnabled.v3";
 
 const SOURCE_ESP32 = "esp32";
+// Synthetic IDs for facingMode-based mobile chips. On phones, enumerated
+// device IDs are opaque pre-permission and don't reliably distinguish front
+// vs rear cameras — facingMode hints are the contract that actually works.
+const SOURCE_FACING_USER = "facing:user";
+const SOURCE_FACING_ENV  = "facing:environment";
+
+function isMobileViewport(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia?.("(pointer: coarse)").matches ?? false;
+}
 
 type SourceMeta =
   | { id: typeof SOURCE_ESP32; type: "esp32"; label: string }
@@ -89,6 +202,7 @@ export function CameraCard() {
 
   const [webcams, setWebcams] = useState<WebcamInfo[]>([]);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const mobile = isMobileViewport();
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -145,9 +259,21 @@ export function CameraCard() {
     if (enabled.has(SOURCE_ESP32)) {
       out.push({ id: SOURCE_ESP32, type: "esp32", label: "ESP32" });
     }
-    for (const w of webcams) {
-      if (enabled.has(w.deviceId)) {
-        out.push({ id: w.deviceId, type: "webcam", label: w.label });
+    if (mobile) {
+      // Mobile: prefer facingMode-based synthetic chips; ignore enumerated
+      // devices (their pre-permission deviceIds don't reliably pick the
+      // physical camera the user expects).
+      if (enabled.has(SOURCE_FACING_USER)) {
+        out.push({ id: SOURCE_FACING_USER, type: "webcam", label: "前鏡頭 FRONT" });
+      }
+      if (enabled.has(SOURCE_FACING_ENV)) {
+        out.push({ id: SOURCE_FACING_ENV, type: "webcam", label: "後鏡頭 REAR" });
+      }
+    } else {
+      for (const w of webcams) {
+        if (enabled.has(w.deviceId)) {
+          out.push({ id: w.deviceId, type: "webcam", label: w.label });
+        }
       }
     }
     return out;
@@ -182,6 +308,7 @@ export function CameraCard() {
         onToggle={toggle}
         onRescan={rescan}
         discoveryError={discoveryError}
+        mobile={mobile}
       />
 
       {count === 0 ? (
@@ -218,12 +345,14 @@ function SourceToolbar({
   onToggle,
   onRescan,
   discoveryError,
+  mobile,
 }: {
   webcams: WebcamInfo[];
   enabled: Set<string>;
   onToggle: (id: string) => void;
   onRescan: () => void;
   discoveryError: string | null;
+  mobile: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -234,33 +363,54 @@ function SourceToolbar({
       >
         ESP32
       </Chip>
-      {webcams.map((w) => (
-        <Chip
-          key={w.deviceId}
-          active={enabled.has(w.deviceId)}
-          onClick={() => onToggle(w.deviceId)}
-          title={w.label}
-        >
-          {truncate(w.label, 22)}
-        </Chip>
-      ))}
-      <button
-        type="button"
-        onClick={onRescan}
-        title="重新掃描相機(USB webcam 剛插上時用)"
-        className="inline-flex items-center gap-1.5 border border-ink-600 text-smoke-400 hover:text-smoke-100 hover:border-ink-500 px-2.5 py-1.5 font-mono text-[11px] tracking-widest transition-colors"
-      >
-        ↻ RESCAN
-      </button>
-      {webcams.length === 0 && !discoveryError && (
-        <span className="t-meta text-smoke-500">
-          (尚未掃到 webcam — 啟動後或按 ↻ RESCAN)
-        </span>
-      )}
-      {discoveryError && (
-        <span className="text-[10px] tracking-widest font-mono text-accent-warn">
-          {discoveryError}
-        </span>
+      {mobile ? (
+        <>
+          <Chip
+            active={enabled.has(SOURCE_FACING_USER)}
+            onClick={() => onToggle(SOURCE_FACING_USER)}
+            title="手機前鏡頭 (facingMode user)"
+          >
+            FRONT
+          </Chip>
+          <Chip
+            active={enabled.has(SOURCE_FACING_ENV)}
+            onClick={() => onToggle(SOURCE_FACING_ENV)}
+            title="手機後鏡頭 (facingMode environment)"
+          >
+            REAR
+          </Chip>
+        </>
+      ) : (
+        <>
+          {webcams.map((w) => (
+            <Chip
+              key={w.deviceId}
+              active={enabled.has(w.deviceId)}
+              onClick={() => onToggle(w.deviceId)}
+              title={w.label}
+            >
+              {truncate(w.label, 22)}
+            </Chip>
+          ))}
+          <button
+            type="button"
+            onClick={onRescan}
+            title="重新掃描相機(USB webcam 剛插上時用)"
+            className="inline-flex items-center gap-1.5 border border-ink-600 text-smoke-400 hover:text-smoke-100 hover:border-ink-500 px-2.5 py-1.5 font-mono text-[11px] tracking-widest transition-colors"
+          >
+            ↻ RESCAN
+          </button>
+          {webcams.length === 0 && !discoveryError && (
+            <span className="t-meta text-smoke-500">
+              (尚未掃到 webcam — 啟動後或按 ↻ RESCAN)
+            </span>
+          )}
+          {discoveryError && (
+            <span className="text-[10px] tracking-widest font-mono text-accent-warn">
+              {discoveryError}
+            </span>
+          )}
+        </>
       )}
     </div>
   );
@@ -621,9 +771,16 @@ function WebcamFeed({
       }
     };
 
+    // Synthetic IDs from mobile FRONT/REAR chips → facingMode constraint.
+    // Real enumerated deviceIds → strict deviceId match.
+    const facingMatch = deviceId.match(/^facing:(user|environment)$/);
+    const videoConstraint: MediaTrackConstraints = facingMatch
+      ? { facingMode: { ideal: facingMatch[1] as "user" | "environment" } }
+      : { deviceId: { exact: deviceId } };
+
     try {
       const stream = await tryConstraints({
-        video: { deviceId: { exact: deviceId } },
+        video: videoConstraint,
         audio: false,
       });
       streamRef.current = stream;
@@ -772,28 +929,7 @@ function WebcamFeed({
                   </p>
                 </div>
               ) : state === "denied" ? (
-                <div className="text-center px-6 max-w-md">
-                  <p className="text-[10px] tracking-widest text-accent-warn font-mono mb-2">
-                    PERMISSION DENIED
-                  </p>
-                  <p className="text-xs text-smoke-300 font-han mb-3 leading-relaxed">
-                    OpenClaw gateway 送的{" "}
-                    <code className="text-smoke-100">Permissions-Policy</code>{" "}
-                    header 會擋掉 Chromium 系列瀏覽器的 webcam 權限。
-                    <b className="text-accent-info">請改用 Firefox</b>{" "}
-                    開這個 dashboard,webcam 就能正常授權。
-                  </p>
-                  <p className="text-[10px] tracking-widest text-smoke-500 font-mono mb-3">
-                    (ESP32 鏡頭、感測器、Judge agent 任何瀏覽器都正常)
-                  </p>
-                  <button
-                    type="button"
-                    onClick={start}
-                    className="border border-ink-600 text-smoke-200 hover:bg-ink-700 px-3 py-1.5 font-mono text-xs tracking-widest"
-                  >
-                    ▸ RETRY
-                  </button>
-                </div>
+                <DeniedHelp onRetry={start} />
               ) : state === "nodevice" ? (
                 <div className="text-center px-6 max-w-md">
                   <p className="text-xs text-smoke-400 font-mono tracking-wide mb-2">

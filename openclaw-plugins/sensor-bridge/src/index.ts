@@ -341,6 +341,67 @@ export default definePluginEntry({
       },
     });
 
+    // GET /api/booth/info — returns the host's non-loopback LAN IPv4(s) so
+    // the dashboard can generate a QR code pointing visitors' phones at the
+    // dashboard via LAN. Probes :18443 to decide whether the HTTPS reverse
+    // proxy is up (mobile Firefox needs HTTPS for getUserMedia on LAN IPs).
+    // Token-protected like other /api routes.
+    api.registerHttpRoute({
+      path: "/api/booth/info",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method !== "GET") {
+          writeJson(res, 405, { ok: false, error: "method not allowed" });
+          return true;
+        }
+        if (!requireToken(req, res)) return true;
+        const nics = os.networkInterfaces();
+        const lanIps: string[] = [];
+        for (const list of Object.values(nics)) {
+          for (const nic of list ?? []) {
+            if (
+              nic.family === "IPv4" &&
+              !nic.internal &&
+              // Restrict to private/link-local ranges so we don't accidentally
+              // advertise a public IP if the host happens to be dual-homed.
+              /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.)/.test(nic.address)
+            ) {
+              lanIps.push(nic.address);
+            }
+          }
+        }
+        // HTTPS proxy is optional. Probe with a 250ms TCP connect — if it's
+        // up, dashboard uses https://<ip>:18443 in the QR; else falls back
+        // to http://<ip>:18790 (and webcam SCAN from phones won't work).
+        const httpsPort = 18443;
+        const probeHttps = (): Promise<boolean> =>
+          new Promise((resolve) => {
+            // dynamic import keeps the optional-deps story clean
+            void import("node:net").then(({ Socket }) => {
+              const s = new Socket();
+              const done = (ok: boolean) => {
+                s.destroy();
+                resolve(ok);
+              };
+              s.setTimeout(250);
+              s.once("connect", () => done(true));
+              s.once("timeout", () => done(false));
+              s.once("error", () => done(false));
+              s.connect(httpsPort, "127.0.0.1");
+            });
+          });
+        const httpsAvailable = await probeHttps();
+        writeJson(res, 200, {
+          ok: true,
+          lan_ips: lanIps,
+          port: 18790,
+          https_port: httpsAvailable ? httpsPort : null,
+        });
+        return true;
+      },
+    });
+
     // POST /api/vision/describe — dashboard "describe scene" button. Body:
     //   { image_b64: string, source_label?: string }
     // Returns { description, took_ms } on success, 503 on agent failure.
@@ -450,7 +511,7 @@ export default definePluginEntry({
     });
 
     log.info(
-      `[${PLUGIN_ID}] registered: POST /api/sensor/ingest, GET /api/sensor/stream, GET /api/alert/stream, POST /api/actuator, POST /api/vision/describe, GET /api/device-info, GET / + /static/* (staticDir=${staticDir}, bridgeUrl=${bridgeUrl})`,
+      `[${PLUGIN_ID}] registered: POST /api/sensor/ingest, GET /api/sensor/stream, GET /api/alert/stream, POST /api/actuator, POST /api/vision/describe, GET /api/device-info, GET /api/booth/info, GET / + /static/* (staticDir=${staticDir}, bridgeUrl=${bridgeUrl})`,
     );
   },
 });
