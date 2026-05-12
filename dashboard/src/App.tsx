@@ -191,7 +191,7 @@ export default function App() {
       {/* === LOG + CONTROL =============================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mb-6">
         <JudgePanel alerts={alerts.slice(-5).reverse()} />
-        <ActuatorControls />
+        <ActuatorControls latest={latest} />
       </div>
 
       {/* === FOOTER ====================================================== */}

@@ -1,6 +1,60 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { describeImage } from "../lib/api";
 import { gatewayToken } from "../lib/gatewayToken";
 import type { DeviceInfo } from "../types";
+
+type VisionState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; description: string; took_ms: number }
+  | { kind: "error"; message: string };
+
+function VisionOverlay({
+  state,
+  onDismiss,
+}: {
+  state: VisionState;
+  onDismiss: () => void;
+}) {
+  if (state.kind === "idle") return null;
+  return (
+    <div className="absolute bottom-0 left-0 right-0 z-10 bg-ink-950/85 border-t border-accent-info/40 backdrop-blur-sm">
+      <div className="flex items-start gap-2 p-2">
+        <span className="text-[10px] tracking-widest text-accent-info font-mono mt-0.5 shrink-0">
+          👁 VISION-1
+        </span>
+        <div className="flex-1 min-w-0">
+          {state.kind === "loading" ? (
+            <p className="text-xs text-smoke-300 font-han animate-pulse-dot">
+              agent 分析中… (VLM 約 5-60 秒,首次更久)
+            </p>
+          ) : state.kind === "ok" ? (
+            <>
+              <p className="text-sm text-smoke-100 font-han leading-relaxed">
+                {state.description}
+              </p>
+              <p className="text-[10px] tracking-widest text-smoke-500 font-mono mt-0.5">
+                {(state.took_ms / 1000).toFixed(1)}s · qwen2.5vl
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-accent-danger font-mono break-all">
+              {state.message}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-smoke-500 hover:text-smoke-100 text-base leading-none font-mono shrink-0"
+          title="關閉"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const POLL_INTERVAL_MS = 30_000;
 const STORAGE_ENABLED_KEY = "demo2.cameraEnabled.v2";
@@ -309,35 +363,72 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
   const [info, setInfo] = useState<DeviceInfo | null>(null);
   const [imageError, setImageError] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
+  const [vision, setVision] = useState<VisionState>({ kind: "idle" });
   const lastIpRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchInfo = async () => {
-      try {
-        const token = gatewayToken();
-        const url = new URL("/api/device-info", window.location.origin);
-        if (token) url.searchParams.set("token", token);
-        const r = await fetch(url.toString());
-        if (!r.ok || cancelled) return;
-        const data = (await r.json()) as DeviceInfo;
-        setInfo(data);
-        if (data.camera_stream_url && data.device_ip !== lastIpRef.current) {
-          lastIpRef.current = data.device_ip;
-          setStreamKey((k) => k + 1);
-          setImageError(false);
-        }
-      } catch {
-        /* keep last good state */
+  const fetchInfo = useCallback(async () => {
+    try {
+      const token = gatewayToken();
+      const url = new URL("/api/device-info", window.location.origin);
+      if (token) url.searchParams.set("token", token);
+      const r = await fetch(url.toString());
+      if (!r.ok) return;
+      const data = (await r.json()) as DeviceInfo;
+      setInfo(data);
+      if (data.camera_stream_url && data.device_ip !== lastIpRef.current) {
+        lastIpRef.current = data.device_ip;
+        setStreamKey((k) => k + 1);
+        setImageError(false);
       }
-    };
-    fetchInfo();
-    const t = setInterval(fetchInfo, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
+    } catch {
+      /* keep last good state */
+    }
   }, []);
+
+  // Manual reconnect: force <img> remount + clear error + re-poll device-info.
+  // ESP32's :81/stream allows only one client; the previous tab may still hold
+  // the connection — this drops it on our side and the ESP32's keep-alive
+  // timeout reclaims it server-side within a few seconds.
+  const reconnect = useCallback(() => {
+    setImageError(false);
+    setVision({ kind: "idle" });
+    setStreamKey((k) => k + 1);
+    void fetchInfo();
+  }, [fetchInfo]);
+
+  useEffect(() => {
+    void fetchInfo();
+    const t = setInterval(fetchInfo, POLL_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [fetchInfo]);
+
+  // Snapshot via ESP32's /capture endpoint (port 80, not :81 — :81 is MJPEG
+  // multipart and not blob-friendly for a single grab). Convert to data URL,
+  // hand to vision-1. ESP32 firmware sets Access-Control-Allow-Origin: * so
+  // cross-origin from 127.0.0.1:18790 → 10.x.x.x:80 works without proxy.
+  const describeScene = useCallback(async () => {
+    const ip = info?.device_ip;
+    if (!ip) return;
+    setVision({ kind: "loading" });
+    try {
+      const r = await fetch(`http://${ip}/capture`);
+      if (!r.ok) throw new Error(`/capture HTTP ${r.status}`);
+      const blob = await r.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result as string);
+        fr.onerror = () => reject(new Error("FileReader failed"));
+        fr.readAsDataURL(blob);
+      });
+      const reply = await describeImage(dataUrl, "ESP32-S3-CAM");
+      setVision({ kind: "ok", description: reply.description, took_ms: reply.took_ms });
+    } catch (e) {
+      setVision({
+        kind: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }, [info?.device_ip]);
 
   const streaming = info?.camera_stream_url && !imageError;
   const hudLabel = showLabel
@@ -357,6 +448,29 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
               onError={() => setImageError(true)}
             />
             <HudOverlay label={hudLabel} meta="MJPEG / 640×480" rec />
+            <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={describeScene}
+                disabled={vision.kind === "loading"}
+                title="拍一張交給 vision-1 agent 寫一句中文描述"
+                className="border border-accent-info/70 bg-ink-950/70 text-accent-info hover:bg-accent-info/20 disabled:opacity-50 disabled:cursor-wait px-2 py-1 text-[10px] tracking-widest font-mono"
+              >
+                {vision.kind === "loading" ? "⋯ SCANNING" : "👁 SCAN"}
+              </button>
+              <button
+                type="button"
+                onClick={reconnect}
+                title="重新拉一次 MJPEG 連線(畫面卡住時用)"
+                className="border border-smoke-500/60 bg-ink-950/70 text-smoke-300 hover:bg-ink-800 px-2 py-1 text-[10px] tracking-widest font-mono"
+              >
+                ↻
+              </button>
+            </div>
+            <VisionOverlay
+              state={vision}
+              onDismiss={() => setVision({ kind: "idle" })}
+            />
           </>
         ) : (
           <>
@@ -364,11 +478,18 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center px-6 max-w-md">
                 <p className="t-meta text-smoke-500 mb-1">no signal</p>
-                <p className="text-xs text-smoke-400 font-mono tracking-wide">
+                <p className="text-xs text-smoke-400 font-mono tracking-wide mb-3">
                   {info?.device_ip
-                    ? "影像載入失敗,確認 ESP32 在線且 :81/stream 可達"
+                    ? "影像載入失敗,可能是上一條 MJPEG 連線還沒釋放"
                     : "等待 ESP32 連線到 plugin"}
                 </p>
+                <button
+                  type="button"
+                  onClick={reconnect}
+                  className="border border-accent-info text-accent-info hover:bg-accent-info/10 px-3 py-1.5 font-mono text-xs tracking-widest"
+                >
+                  ↻ RECONNECT
+                </button>
               </div>
             </div>
           </>
@@ -391,12 +512,6 @@ type FeedState =
   | "nodevice"
   | "insecure"
   | "error";
-
-type VisionState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "ok"; description: string; took_ms: number }
-  | { kind: "error"; message: string };
 
 function WebcamFeed({
   deviceId,
@@ -435,37 +550,12 @@ function WebcamFeed({
     ctx.drawImage(v, 0, 0, w, h);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
     try {
-      const token = gatewayToken();
-      const url = new URL("/api/vision/describe", window.location.origin);
-      if (token) url.searchParams.set("token", token);
-      const r = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image_b64: dataUrl,
-          source_label: activeLabel,
-        }),
+      const reply = await describeImage(dataUrl, activeLabel);
+      setVision({
+        kind: "ok",
+        description: reply.description,
+        took_ms: reply.took_ms,
       });
-      const data = (await r.json()) as {
-        ok?: boolean;
-        description?: string;
-        took_ms?: number;
-        error?: string;
-      };
-      if (!r.ok || !data.ok) {
-        setVision({
-          kind: "error",
-          message: data.error ?? `HTTP ${r.status}`,
-        });
-      } else if (data.description) {
-        setVision({
-          kind: "ok",
-          description: data.description,
-          took_ms: data.took_ms ?? 0,
-        });
-      } else {
-        setVision({ kind: "error", message: "agent 回應為空" });
-      }
     } catch (e) {
       setVision({
         kind: "error",
@@ -642,43 +732,10 @@ function WebcamFeed({
                 ⏸ PAUSE
               </button>
             </div>
-            {vision.kind !== "idle" && (
-              <div className="absolute bottom-0 left-0 right-0 z-10 bg-ink-950/85 border-t border-accent-info/40 backdrop-blur-sm">
-                <div className="flex items-start gap-2 p-2">
-                  <span className="text-[10px] tracking-widest text-accent-info font-mono mt-0.5 shrink-0">
-                    👁 VISION-1
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    {vision.kind === "loading" ? (
-                      <p className="text-xs text-smoke-300 font-han animate-pulse-dot">
-                        agent 分析中… (VLM 約 5-60 秒,首次更久)
-                      </p>
-                    ) : vision.kind === "ok" ? (
-                      <>
-                        <p className="text-sm text-smoke-100 font-han leading-relaxed">
-                          {vision.description}
-                        </p>
-                        <p className="text-[10px] tracking-widest text-smoke-500 font-mono mt-0.5">
-                          {(vision.took_ms / 1000).toFixed(1)}s · qwen2.5vl
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-xs text-accent-danger font-mono break-all">
-                        {vision.message}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setVision({ kind: "idle" })}
-                    className="text-smoke-500 hover:text-smoke-100 text-base leading-none font-mono shrink-0"
-                    title="關閉"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            )}
+            <VisionOverlay
+              state={vision}
+              onDismiss={() => setVision({ kind: "idle" })}
+            />
           </>
         ) : state === "paused" ? (
           <>
