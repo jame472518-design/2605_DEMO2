@@ -141,11 +141,20 @@ export default function App() {
         <SensorCard
           slot="03"
           label="MOTION"
-          value={latest ? (latest.pir === 1 ? "ACTIVE" : "IDLE") : "—"}
-          history={frames.map((f) => f.pir)}
+          value={
+            !latest || latest.pir === undefined
+              ? "—"
+              : latest.pir === 1
+                ? "ACTIVE"
+                : "IDLE"
+          }
+          history={frames.map((f) => f.pir ?? 0)}
           rule="NIGHT_INTRUSION + LUX"
           threshold={
-            latest && latest.pir === 1 && latest.lux_raw < 50
+            latest &&
+            latest.pir === 1 &&
+            latest.lux_raw !== undefined &&
+            latest.lux_raw < 50
               ? { breached: true, severity: "critical" }
               : undefined
           }
@@ -154,19 +163,25 @@ export default function App() {
           slot="04"
           label="LUX RAW"
           unit="lx"
-          value={latest ? String(latest.lux_raw) : "—"}
-          history={frames.map((f) => f.lux_raw)}
+          value={latest?.lux_raw !== undefined ? String(latest.lux_raw) : "—"}
+          history={frames.map((f) => f.lux_raw ?? 0)}
           rule="<50 = DARK"
         />
         <SensorCard
           slot="05"
           label="DIST cm"
           unit="cm"
-          value={latest ? latest.distance_cm.toFixed(0) : "—"}
-          history={frames.map((f) => f.distance_cm)}
+          value={
+            latest?.distance_cm !== undefined
+              ? latest.distance_cm.toFixed(0)
+              : "—"
+          }
+          history={frames.map((f) => f.distance_cm ?? 0)}
           rule="OBJECT_TOO_CLOSE  < 15  3s"
           threshold={
-            latest && latest.distance_cm < 15
+            latest &&
+            latest.distance_cm !== undefined &&
+            latest.distance_cm < 15
               ? { breached: true, severity: "info" }
               : undefined
           }

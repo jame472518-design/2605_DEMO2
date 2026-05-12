@@ -1,11 +1,20 @@
+/**
+ * Phase 1 firmware reports temp_c / humidity / audio_rms / pan_angle /
+ * tilt_angle. Phase 2 fields (pir, lux_raw, distance_cm) are reported only
+ * once that hardware is wired — until then, the dashboard renders them
+ * as "—" rather than NaN/undefined.
+ */
 export type SensorFrame = {
   ts: string;
   seq: number;
   temp_c: number;
   humidity: number;
-  pir: 0 | 1;
-  lux_raw: number;
-  distance_cm: number;
+  pir?: 0 | 1;
+  lux_raw?: number;
+  distance_cm?: number;
+  audio_rms?: number;
+  pan_angle?: number;
+  tilt_angle?: number;
   device_ip?: string;
   device_id?: string;
 };

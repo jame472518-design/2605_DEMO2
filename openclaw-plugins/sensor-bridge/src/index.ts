@@ -309,9 +309,31 @@ export default definePluginEntry({
           return true;
         }
         const cmd = body.value as ActuatorCommand;
-        if (!cmd || typeof cmd !== "object" || (cmd.device !== "buzzer" && cmd.device !== "led")) {
-          writeJson(res, 400, { ok: false, error: "device must be 'buzzer' or 'led'" });
+        const validDevice =
+          cmd && typeof cmd === "object" &&
+          (cmd.device === "buzzer" || cmd.device === "led" || cmd.device === "servo");
+        if (!validDevice) {
+          writeJson(res, 400, {
+            ok: false,
+            error: "device must be 'buzzer', 'led', or 'servo'",
+          });
           return true;
+        }
+        if (cmd.device === "servo") {
+          const angle = (cmd as { angle?: unknown }).angle;
+          if (
+            (cmd.state !== "pan" && cmd.state !== "tilt") ||
+            typeof angle !== "number" ||
+            !Number.isFinite(angle) ||
+            angle < 0 ||
+            angle > 180
+          ) {
+            writeJson(res, 400, {
+              ok: false,
+              error: "servo requires state='pan'|'tilt' and angle:number 0..180",
+            });
+            return true;
+          }
         }
         await sendActuator(getActuatorTarget(), cmd, log);
         writeJson(res, 200, { ok: true });
