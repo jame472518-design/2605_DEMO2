@@ -12,6 +12,9 @@ type Rule = {
   /** Diagnostic payload describing what tripped — written into Alert.trigger. */
   trigger(history: SensorFrame[]): Record<string, unknown>;
   actuator?: { device: "buzzer" | "led"; state: string; duration_ms?: number };
+  /** If true, plugin should also grab a fresh ESP32 frame + vision-1 describe
+   *  after this rule fires, broadcasting an alert update with scene_description. */
+  autoVision?: boolean;
 };
 
 // ---- YAML schema ---------------------------------------------------------
@@ -30,6 +33,7 @@ type RuleConfig = {
   severity: Severity;
   when: RuleConfigWhen;
   actuator?: Rule["actuator"];
+  auto_vision?: boolean;
 };
 type RulesFile = { rules: RuleConfig[] };
 
@@ -145,6 +149,7 @@ function compileRule(cfg: RuleConfig): Rule {
     actuator: cfg.actuator,
     check: compiled.check,
     trigger: compiled.trigger,
+    autoVision: cfg.auto_vision ?? false,
   };
 }
 
@@ -213,6 +218,10 @@ export class RuleEngine {
     return this.rules.find((r) => r.id === ruleId)?.actuator;
   }
 
+  isAutoVision(ruleId: string): boolean {
+    return this.rules.find((r) => r.id === ruleId)?.autoVision === true;
+  }
+
   size(): number {
     return this.history.length;
   }
@@ -231,19 +240,21 @@ const DEFAULT_RULES: Rule[] = [
     actuator: { device: "buzzer", state: "on", duration_ms: 1500 },
   }),
   compileRule({
-    id: "night_intrusion",
-    severity: "critical",
-    when: {
-      all: [
-        { metric: "pir", op: "==", value: 1 },
-        { metric: "lux_raw", op: "<", value: 50 },
-      ],
-    },
-    actuator: { device: "led", state: "red" },
+    id: "motion_detected",
+    severity: "info",
+    when: { metric: "pir", op: "==", value: 1 },
+    actuator: { device: "led", state: "on" },
+    auto_vision: true,
   }),
   compileRule({
     id: "object_too_close",
     severity: "info",
     when: { metric: "distance_cm", op: "<", value: 15, window_s: 3 },
+  }),
+  compileRule({
+    id: "noise_event",
+    severity: "info",
+    when: { metric: "audio_rms", op: ">", value: 50000, window_s: 1 },
+    auto_vision: true,
   }),
 ];

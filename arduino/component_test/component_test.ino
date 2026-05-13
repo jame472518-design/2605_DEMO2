@@ -1,11 +1,11 @@
 /*
- * demo2 — Component Test (Phase 1 hardware)
+ * demo2 — Component Test (Phase 1 + Phase 2 hardware)
  * Board: GOOUUU ESP32-S3-CAM-N16R8 (OV2640)
  *
- * Interactive Serial menu — exercises each Phase 1 component on its own so you
- * can verify wiring before flashing the production sketch. Mirrors the layout
- * of the prior 20260308_esp32_wifi_tracker/component_test.ino but drops the
- * MAX98357A speaker (GPIO 1/41/42 are reserved for Phase 2 sensors).
+ * Interactive Serial menu — exercises every demo2 component in isolation so
+ * you can verify wiring before flashing the production sketch. Phase 2 tests
+ * only init their pins on first invocation, so you can run this sketch even
+ * if you haven't wired Phase 2 yet (those menu items just fail diagnostically).
  *
  * Arduino IDE Settings:
  *   Board:                "ESP32S3 Dev Module"
@@ -19,7 +19,7 @@
  *   - Adafruit Unified Sensor (DHT dependency, usually auto-pulled)
  *   - U8g2 (Oliver Kraus)
  *
- * Pin map (Phase 1):
+ * Pin map — Phase 1 (already wired from prior project):
  *   DHT11        Data → GPIO 2,  VCC → 3.3V, GND → GND
  *   Servo Pan    Sig  → GPIO 14, VCC → 5V,   GND → GND
  *   Servo Tilt   Sig  → GPIO 3,  VCC → 5V,   GND → GND
@@ -27,23 +27,27 @@
  *   INMP441 mic  SCK  → GPIO 38, WS  → GPIO 39, SD → GPIO 40, L/R → GND, VDD → 3.3V
  *   OV2640       fixed (see camera pin block below)
  *
- * Phase 2 pins (NOT used here; documented so you don't accidentally re-use):
- *   PIR  21, LDR 1 (ADC1), HC-SR04 trig 42 / echo 41, buzzer 43, LED 44.
+ * Pin map — Phase 2 (incremental: wire ONE component, test, repeat):
+ *   PIR HC-SR501 OUT  → GPIO 21,  VCC → 5V, GND → GND
+ *   HC-SR04 Trig      → GPIO 42, VCC → 5V, GND → GND
+ *   HC-SR04 Echo      → GPIO 41 via 5V→3.3V divider (1kΩ→GPIO 41, GPIO 41→2kΩ→GND)
+ *   Buzzer (active) + → GPIO 45, − → GND
+ *   LED red anode     → GPIO 1 via 220Ω series, cathode → GND
+ *
+ * (LDR was dropped from the Phase 2 BOM — not applicable to the booth scene.)
  *
  * Usage:
- *   1) Open Serial Monitor at 115200 baud
- *   2) Type a single letter/digit and press Enter:
- *        1 = DHT11
- *        2 = Servo Pan  (GPIO 14)
- *        3 = Servo Tilt (GPIO 3)
- *        4 = Camera (init + capture one frame)
- *        5 = WiFi (connect, print IP/RSSI)
- *        6 = Servo Pan sweep (continuous; press 's' to stop)
- *        7 = Test ALL (1→8 sequentially)
- *        8 = OLED display test
- *        9 = OLED live sensor (temp/hum + uptime; 's' to stop)
- *        m = INMP441 mic RMS volume meter ('s' to stop)
- *        s = Stop any running loop
+ *   Serial Monitor at 115200 baud. Type one of:
+ *     Phase 1:
+ *       1 = DHT11        2 = Servo Pan    3 = Servo Tilt
+ *       4 = Camera       5 = WiFi         6 = Servo sweep
+ *       7 = Test ALL P1  8 = OLED         9 = OLED live
+ *       m = mic RMS
+ *     Phase 2:
+ *       p = PIR live     d = HC-SR04 distance live
+ *       b = buzzer beep  e = LED blink
+ *     control:
+ *       s = stop any running loop
  */
 
 #include <WiFi.h>
@@ -75,6 +79,17 @@ bool oledReady = false;
 #define I2S_SAMPLE_RATE 16000
 #define I2S_BUF_LEN      512
 bool micReady = false;
+
+// ============================================================================
+// Pin configuration (Phase 2 — only init when the corresponding test runs,
+// so an un-wired pin floating doesn't break Phase 1 boot)
+// ============================================================================
+#define PIR_PIN          21    // HC-SR501 OUT (3.3V level, direct connect)
+#define HCSR_TRIG_PIN    42    // HC-SR04 Trig (3.3V is enough for trig)
+#define HCSR_ECHO_PIN    41    // HC-SR04 Echo via 5V→3.3V divider (1kΩ + 2kΩ to GND)
+#define BUZZER_PIN       45    // Active buzzer + (GPIO 43 not broken out, 45 is)
+#define LED_PIN           1    // LED red anode (+ 220Ω to LED, LED → GND)
+// (LDR removed from BOM; GPIO 1 reused for LED.)
 
 // Camera (GOOUUU ESP32-S3-CAM)
 #define PWDN_GPIO_NUM  -1
@@ -437,6 +452,123 @@ void testMic() {
 }
 
 // ============================================================================
+// Phase 2: PIR HC-SR501 — motion detector live monitor
+// ============================================================================
+void testPIR() {
+    Serial.println("\n===== TEST: PIR HC-SR501 (GPIO 21) — 's' to stop =====");
+    Serial.println("  HC-SR501 needs ~30s settling after power-on before it's stable.");
+    Serial.println("  Wave a hand 1-3m in front of the lens; pin should go HIGH for ~3-5s.");
+    Serial.println("  If always LOW: check 5V to PIR VCC, OUT wire to GPIO 21, jumper set to H.");
+    Serial.println();
+    pinMode(PIR_PIN, INPUT);
+    running = true;
+    int last = -1;
+    unsigned long startMs = millis();
+    int transitions = 0;
+    while (running) {
+        int now = digitalRead(PIR_PIN);
+        if (now != last) {
+            unsigned long t = (millis() - startMs) / 1000;
+            Serial.printf("  [t+%lus] PIR = %s  (transitions=%d)\n",
+                          t, now == HIGH ? "HIGH (motion!)" : "LOW  (idle)", ++transitions);
+            last = now;
+        }
+        for (int i = 0; i < 5 && running; i++) {
+            delay(40);
+            stopRequested();
+        }
+    }
+    Serial.printf("  PIR test done. %d transitions in %lus.\n",
+                  transitions, (millis() - startMs) / 1000);
+    Serial.println("===== PIR done =====\n");
+}
+
+// ============================================================================
+// Phase 2: HC-SR04 — ultrasonic distance live read
+// ============================================================================
+float readDistanceCm() {
+    digitalWrite(HCSR_TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(HCSR_TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(HCSR_TRIG_PIN, LOW);
+    // 30ms timeout ≈ 5m max range; out-of-range returns 0
+    unsigned long pulseUs = pulseIn(HCSR_ECHO_PIN, HIGH, 30000UL);
+    if (pulseUs == 0) return -1.0f;            // no echo
+    return (float)pulseUs * 0.0343f / 2.0f;    // speed of sound / 2 (round-trip)
+}
+
+void testDistance() {
+    Serial.println("\n===== TEST: HC-SR04 distance (GPIO 42 trig / 41 echo) — 's' to stop =====");
+    Serial.println("  Sample every 200ms. Move your hand 5cm-2m in front of the sensor.");
+    Serial.println("  If always -1: check 5V to VCC, trig wire, echo voltage divider (5V→3.3V).");
+    Serial.println("  If always 999/erratic: divider missing or HC-SR04 damaged.");
+    Serial.println();
+    pinMode(HCSR_TRIG_PIN, OUTPUT);
+    pinMode(HCSR_ECHO_PIN, INPUT);
+    digitalWrite(HCSR_TRIG_PIN, LOW);
+    delay(100);
+    running = true;
+    int count = 0;
+    float lastReported = -999.0f;
+    while (running) {
+        float cm = readDistanceCm();
+        count++;
+        // Print every reading for the first 5, then every change > 2cm OR every 10th
+        bool report = count <= 5
+                   || count % 10 == 0
+                   || (cm > 0 && fabsf(cm - lastReported) > 2.0f);
+        if (report) {
+            if (cm < 0) {
+                Serial.printf("  [%4d] distance = no echo (out of range / wiring issue)\n", count);
+            } else {
+                Serial.printf("  [%4d] distance = %6.1f cm\n", count, cm);
+                lastReported = cm;
+            }
+        }
+        for (int i = 0; i < 5 && running; i++) {
+            delay(40);
+            stopRequested();
+        }
+    }
+    Serial.printf("  Distance test done. %d samples taken.\n", count);
+    Serial.println("===== Distance done =====\n");
+}
+
+// ============================================================================
+// Phase 2: Buzzer + LED — quick beep / blink
+// ============================================================================
+void testBuzzer() {
+    Serial.println("\n===== TEST: Buzzer (GPIO 45) =====");
+    Serial.println("  3 beeps, 300ms each. Active buzzer should make audible sound.");
+    pinMode(BUZZER_PIN, OUTPUT);
+    for (int i = 0; i < 3; i++) {
+        digitalWrite(BUZZER_PIN, HIGH);
+        Serial.printf("  beep %d ON\n", i + 1);
+        delay(300);
+        digitalWrite(BUZZER_PIN, LOW);
+        delay(300);
+    }
+    Serial.println("  If silent: passive buzzer (needs PWM), wire to wrong polarity, or GPIO 43 issue.");
+    Serial.println("===== Buzzer done =====\n");
+}
+
+void testLED() {
+    Serial.println("\n===== TEST: LED (GPIO 1) =====");
+    Serial.println("  Blink 5 times, 250ms on / 250ms off. With 220Ω series resistor it'll be dim-ish.");
+    pinMode(LED_PIN, OUTPUT);
+    for (int i = 0; i < 5; i++) {
+        digitalWrite(LED_PIN, HIGH);
+        Serial.printf("  LED on  (%d)\n", i + 1);
+        delay(250);
+        digitalWrite(LED_PIN, LOW);
+        delay(250);
+    }
+    Serial.println("  Off. If never lit: check anode/cathode (long leg = +), 220Ω in series.");
+    Serial.println("===== LED done =====\n");
+}
+
+// ============================================================================
 // Test ALL
 // ============================================================================
 void testAll() {
@@ -460,18 +592,25 @@ void testAll() {
 // ============================================================================
 void printMenu() {
     Serial.println("================================");
-    Serial.println("  demo2 Component Test (Phase 1)");
+    Serial.println("  demo2 Component Test");
     Serial.println("================================");
+    Serial.println("  -- Phase 1 --");
     Serial.println("  1 = DHT11 (temp/humidity)");
     Serial.println("  2 = Servo Pan  (GPIO 14)");
     Serial.println("  3 = Servo Tilt (GPIO 3)");
     Serial.println("  4 = Camera (init + 1 frame)");
     Serial.println("  5 = WiFi connect");
     Serial.println("  6 = Servo Pan sweep");
-    Serial.println("  7 = Test ALL (1-8)");
+    Serial.println("  7 = Test ALL Phase 1");
     Serial.println("  8 = OLED display");
     Serial.println("  9 = OLED live sensor");
     Serial.println("  m = INMP441 mic RMS meter");
+    Serial.println("  -- Phase 2 --");
+    Serial.println("  p = PIR HC-SR501 (GPIO 21) — motion live");
+    Serial.println("  d = HC-SR04 distance (GPIO 42/41) — cm live");
+    Serial.println("  b = Buzzer (GPIO 45) — 3 beeps");
+    Serial.println("  e = LED (GPIO 1) — 5 blinks");
+    Serial.println("  -- control --");
     Serial.println("  s = Stop any running loop");
     Serial.println("================================");
     Serial.print("> ");
@@ -513,10 +652,14 @@ void loop() {
         case '8': testOLED();                                 printMenu(); break;
         case '9': oledLiveSensor();                           printMenu(); break;
         case 'm': case 'M': testMic();                        printMenu(); break;
+        case 'p': case 'P': testPIR();                        printMenu(); break;
+        case 'd': case 'D': testDistance();                   printMenu(); break;
+        case 'b': case 'B': testBuzzer();                     printMenu(); break;
+        case 'e': case 'E': testLED();                        printMenu(); break;
         case 's': case 'S': running = false;                              break;
         case '\r': case '\n': case ' ': /* swallow */                     break;
         default:
-            Serial.printf("unknown cmd '%c' — try one of 1-9 / m / s\n", cmd);
+            Serial.printf("unknown cmd '%c' — try one of 1-9 / m / p / d / b / e / s\n", cmd);
             printMenu();
             break;
     }

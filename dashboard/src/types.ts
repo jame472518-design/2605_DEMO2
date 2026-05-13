@@ -1,8 +1,7 @@
 /**
- * Phase 1 firmware reports temp_c / humidity / audio_rms / pan_angle /
- * tilt_angle. Phase 2 fields (pir, lux_raw, distance_cm) are reported only
- * once that hardware is wired — until then, the dashboard renders them
- * as "—" rather than NaN/undefined.
+ * Current firmware reports temp_c / humidity / audio_rms / pir / distance_cm /
+ * pan_angle / tilt_angle. lux_raw is kept optional for backward-compat; the
+ * LDR was dropped from the BOM and the dashboard no longer displays it.
  */
 export type SensorFrame = {
   ts: string;
@@ -38,4 +37,11 @@ export type Alert = {
   explanation: string | null;
   suggested_action: string | null;
   actuator_fired: string | null;
+  /** Set when the alert's rule has auto_vision and vision-1 returned a desc. */
+  scene_description?: string | null;
+  scene_took_ms?: number | null;
 };
+
+/** SSE updates after the initial alert are partial — only `id` is required,
+ *  plus whatever fields the enrichment step filled. Dashboard merges by id. */
+export type AlertUpdate = Partial<Alert> & { id: string };

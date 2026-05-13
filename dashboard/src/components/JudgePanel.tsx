@@ -62,6 +62,14 @@ export function JudgePanel({ alerts }: Props) {
                   </span>
                 )}
               </div>
+              {a.scene_description && (
+                <div className="pl-4 mt-1 text-smoke-400 font-han text-xs leading-relaxed">
+                  <span className="text-[10px] tracking-widest font-mono text-accent-info/80 mr-1.5">
+                    👁
+                  </span>
+                  {a.scene_description}
+                </div>
+              )}
             </li>
           ))}
         </ul>

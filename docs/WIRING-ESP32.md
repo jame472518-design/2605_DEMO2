@@ -20,12 +20,11 @@
 | **OLED SH1106 1.3"** | 1 | 47 / 48 (I2C) | on-device 顯示 T / H / Mic / IP / seq | prev project |
 | **INMP441 mic** | 1 | 38 / 39 / 40 (I2S) | RMS 上傳 audio_rms | prev project |
 | **OV2640 camera** | 1 | 板子固定 | MJPEG :81/stream + /capture | prev project |
-| **PIR HC-SR501** | 2 | 21 | 動作偵測 → `night_intrusion` 規則 | demo2 plan |
-| **LDR** 光感 | 2 | 1 (ADC1_CH0) | 環境亮度 → `night_intrusion` 規則 | demo2 plan |
+| **PIR HC-SR501** | 2 | 21 | 動作偵測 → `motion_detected` 規則 | demo2 plan |
 | **HC-SR04 trig** | 2 | 42 | 超音波距離(觸發) | demo2 plan |
 | **HC-SR04 echo** | 2 | 41 | 超音波距離(回波) **必加 5V→3.3V 分壓** | demo2 plan |
-| **主動 Buzzer** | 2 | 43 | 警報音 → `heat_sustained` 規則 actuator | demo2 plan |
-| **LED 紅 5mm** | 2 | 44 | 警報燈 → `night_intrusion` 規則 actuator | demo2 plan |
+| **主動 Buzzer** | 2 | 45 | 警報音 → `heat_sustained` 規則 actuator(GPIO 43 板子沒接,改用 45) | demo2 plan |
+| **LED 紅 5mm** | 2 | 1 | 警報燈 → `motion_detected` 規則 actuator(GPIO 44 板子沒接,改用 1) | demo2 plan |
 
 避開的腳位(板子已用):4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18(Camera);19, 20(若 USB CDC enabled);47, 48(我們的 OLED I2C)。
 
@@ -102,12 +101,11 @@ L/R 接 GND = 左通道。如果你把它接 3.3V 會變右通道,而韌體只�
 
 | ESP32 GPIO | 元件 | 接法 | 備註 |
 |---|---|---|---|
-| `GPIO 1`  | LDR (analog)  | 3.3V → LDR → GPIO 1 → 10kΩ → GND | ADC1_CH0;WiFi 開時只 ADC1 可靠 |
 | `GPIO 21` | PIR out       | HC-SR501 OUT → GPIO 21          | HC-SR501 OUT 是 3.3V level,直接接 OK |
 | `GPIO 42` | HC-SR04 trig  | HC-SR04 Trig → GPIO 42          | 3.3V 對 HC-SR04 trig 偵測足夠 |
 | `GPIO 41` | HC-SR04 echo  | HC-SR04 Echo → 1kΩ → GPIO 41 + 2kΩ → GND | **必加分壓!** echo 是 5V |
-| `GPIO 43` | Buzzer +      | GPIO 43 → 主動 buzzer 紅,黑 → GND | 主動式直接 digitalWrite HIGH 響 |
-| `GPIO 44` | LED 紅 +      | GPIO 44 → 220Ω → LED 長腳,短腳 → GND | 220Ω 限流 |
+| `GPIO 45` | Buzzer +      | GPIO 45 → 主動 buzzer 紅,黑 → GND | 主動式直接 digitalWrite HIGH 響(GPIO 43 板子沒接) |
+| `GPIO 1`  | LED 紅 +      | GPIO 1 → 220Ω → LED 長腳,短腳 → GND | 220Ω 限流(GPIO 44 板子沒接,挪用原 LDR 的 1)|
 
 ### Phase 2 關鍵接線細節
 
@@ -123,28 +121,11 @@ HC-SR04 Echo ── 1kΩ ──┬── GPIO 41
 
 電阻比 1:2 → 5V × 2/(1+2) = 3.33V。**不裝會燒 ESP32 GPIO 41**。
 
-**2. LDR 分壓**
-
-光感是電阻不是 sensor 模組,要組分壓:
-
-```
-3.3V ── LDR ──┬── GPIO 1 (analog)
-              │
-            10kΩ
-              │
-             GND
-```
-
-亮 → LDR 阻低 → GPIO 1 接近 3.3V → analogRead ≈ 4095。
-暗 → LDR 阻高 → GPIO 1 接近 0V → analogRead ≈ 0。
-
-`night_intrusion` 規則閾值 lux_raw < 50(rules.yaml 可微調)。
-
-**3. 主動式 vs 被動式 buzzer**
+**2. 主動式 vs 被動式 buzzer**
 
 買 **主動式**(寫著 active / 加電就響的)。被動式要 PWM 才有聲,韌體沒寫 PWM。
 
-**4. LED 限流**
+**3. LED 限流**
 
 220Ω 串聯。直接接會在數秒內燒掉 LED。
 
@@ -170,14 +151,12 @@ HC-SR04 Echo ── 1kΩ ──┬── GPIO 41
 | ? | 數 | 元件 | 備註 |
 |:---:|:---:|---|---|
 | ? | 1 | HC-SR501 PIR 模組 | |
-| ? | 1 | LDR(光敏電阻,任意阻值)| |
 | ? | 1 | HC-SR04 超音波模組 | |
 | ? | 1 | 主動式蜂鳴器 | 不要買被動式 |
 | ? | 1 | LED 紅 5mm | |
 | ? | 1 | 220Ω 電阻 | LED 限流 |
 | ? | 1 | 1kΩ 電阻 | HC-SR04 echo 分壓 |
 | ? | 1 | 2kΩ 電阻(或 2 顆 1kΩ 串)| HC-SR04 echo 分壓 |
-| ? | 1 | 10kΩ 電阻 | LDR 分壓 |
 
 露天 / 蝦皮搜尋「ESP32 sensor 套件」常常一包含上面大半。
 

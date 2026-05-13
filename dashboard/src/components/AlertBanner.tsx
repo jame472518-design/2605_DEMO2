@@ -88,6 +88,19 @@ export function AlertBanner({ alert }: Props) {
               {alert.suggested_action}
             </div>
           )}
+          {alert.scene_description && (
+            <div className="mt-2 pt-2 border-t border-current/20 text-smoke-300 font-han text-xs md:text-sm">
+              <span className="text-[10px] tracking-widest font-mono text-accent-info mr-2">
+                👁 SCENE
+              </span>
+              {alert.scene_description}
+              {typeof alert.scene_took_ms === "number" && (
+                <span className="ml-2 text-[10px] tracking-widest font-mono text-smoke-500/70">
+                  ({(alert.scene_took_ms / 1000).toFixed(1)}s)
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* dismiss */}

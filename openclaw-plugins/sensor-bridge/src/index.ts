@@ -141,9 +141,12 @@ export default definePluginEntry({
     let lastDevice: { ip: string; id: string | null; ts: number } | null = null;
     const isDeviceFresh = () =>
       lastDevice !== null && Date.now() - lastDevice.ts < DEVICE_TTL_MS;
+    // Base URL of the actuator host (without /cmd path). sendActuator() adds
+    // /cmd itself — keep this responsibility in one place to avoid the
+    // double-/cmd bug that silently broke servo dispatch until 2026-05-13.
     const getActuatorTarget = (): string => {
-      if (isDeviceFresh()) return `http://${lastDevice!.ip}/cmd`;
-      return `${bridgeUrl.replace(/\/$/, "")}/cmd`;
+      if (isDeviceFresh()) return `http://${lastDevice!.ip}`;
+      return bridgeUrl.replace(/\/$/, "");
     };
     // Try rules.yaml shipped alongside the plugin; fall back to built-in
     // defaults if the file is missing (still safe — defaults match yaml).
@@ -232,15 +235,17 @@ export default definePluginEntry({
           if (actuator) {
             void sendActuator(getActuatorTarget(), actuator as ActuatorCommand, log);
           }
-          // Async enrichment: same alert id re-broadcast with explanation
-          // populated. UI dedups by id and replaces the stale v1.
+          // Async enrichment(s) — each broadcasts a partial alert keyed by id.
+          // Dashboard's onAlert merges by id, so the two enrichments below race
+          // safely: judge fills explanation/suggested_action, vision fills
+          // scene_description. v1 already has the trigger/severity/etc.
           void (async () => {
             const t0 = Date.now();
             const reply = await judge.judge(alert, log);
             const dt = Date.now() - t0;
             if (reply) {
               alertSse.broadcast({
-                ...alert,
+                id: alert.id,
                 explanation: reply.explanation,
                 suggested_action: reply.suggested_action,
               });
@@ -252,6 +257,55 @@ export default definePluginEntry({
               log.warn(`[${PLUGIN_ID}] judge returned null for ${alert.rule} after ${dt}ms`);
             }
           })();
+
+          // Optional auto-vision: rules with `auto_vision: true` get a fresh
+          // ESP32 /capture snapshot fed to vision-1; the resulting Chinese
+          // scene description is patched into the alert. Skipped silently if
+          // no ESP32 has been seen recently (DEVICE_TTL_MS expired).
+          if (engine.isAutoVision(alert.rule)) {
+            void (async () => {
+              if (!isDeviceFresh()) {
+                log.warn(
+                  `[${PLUGIN_ID}] auto-vision: no fresh ESP32 device — skipping for ${alert.rule}`,
+                );
+                return;
+              }
+              const ip = lastDevice!.ip;
+              const t0 = Date.now();
+              try {
+                const ctrl = new AbortController();
+                const tid = setTimeout(() => ctrl.abort(), 5000);
+                const cap = await fetch(`http://${ip}/capture`, { signal: ctrl.signal });
+                clearTimeout(tid);
+                if (!cap.ok) throw new Error(`/capture HTTP ${cap.status}`);
+                const buf = Buffer.from(await cap.arrayBuffer());
+                const b64 = buf.toString("base64");
+                const reply = await vision.describe(
+                  b64,
+                  `${alert.rule} alert capture`,
+                  log,
+                );
+                const dt = Date.now() - t0;
+                if (reply) {
+                  alertSse.broadcast({
+                    id: alert.id,
+                    scene_description: reply.description,
+                    scene_took_ms: dt,
+                  });
+                  log.info(
+                    `[${PLUGIN_ID}] auto-vision ${alert.rule} in ${dt}ms — "${reply.description}"`,
+                  );
+                } else {
+                  log.warn(
+                    `[${PLUGIN_ID}] auto-vision ${alert.rule} returned null after ${dt}ms`,
+                  );
+                }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                log.warn(`[${PLUGIN_ID}] auto-vision ${alert.rule} failed: ${msg}`);
+              }
+            })();
+          }
         }
         writeJson(res, 200, { ok: true, alerts: fired.length });
         return true;

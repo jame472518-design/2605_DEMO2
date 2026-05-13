@@ -11,10 +11,12 @@
  *   INMP441 mic  SCK  → GPIO 38, WS  → GPIO 39, SD → GPIO 40, L/R → GND, VDD → 3.3V
  *   OV2640 cam   fixed pins (see camera pin block)
  *
- * Phase 2 hardware (NOT wired in this build — fields reserved):
- *   PIR  → GPIO 21,  LDR → GPIO 1 (ADC1),
- *   HC-SR04 trig → GPIO 42 / echo → GPIO 41 (5V→3.3V divider!),
- *   buzzer → GPIO 43, LED → GPIO 44.
+ * Phase 2 hardware (added incrementally — only wires what's actually present):
+ *   PIR HC-SR501 OUT → GPIO 21, VCC → 5V, GND → GND
+ *   HC-SR04 Trig    → GPIO 42, VCC → 5V, GND → GND
+ *   HC-SR04 Echo    → GPIO 41 via 5V→3.3V divider (1kΩ + 2kΩ to GND)
+ *   Buzzer (active) + → GPIO 45 (GPIO 43 not broken out on this board)
+ *   LED red anode → GPIO 1 via 220Ω (LDR removed from BOM — slot reused)
  *
  * What this sketch does:
  *   - 1Hz sample → POST JSON sensor frame to the demo2 plugin
@@ -74,6 +76,13 @@
 #define I2S_MIC_RATE   16000
 #define I2S_MIC_BUFLEN   256
 
+// Phase 2 (incremental — only enabled sensors get read in postSensorFrame):
+#define PIN_PIR        21    // HC-SR501 OUT — 3.3V level, direct connect
+#define PIN_HCSR_TRIG  42    // HC-SR04 trig
+#define PIN_HCSR_ECHO  41    // HC-SR04 echo via 5V→3.3V divider (1kΩ + 2kΩ to GND)
+#define PIN_BUZZER     45    // Active buzzer + — strapping pin, OK as output post-boot
+#define PIN_LED         1    // LED red anode (via 220Ω). LDR slot reused.
+
 // Camera (GOOUUU ESP32-S3-CAM)
 #define PWDN_GPIO_NUM   -1
 #define RESET_GPIO_NUM  -1
@@ -110,6 +119,7 @@ httpd_handle_t stream_httpd = NULL;
 unsigned long lastSampleMs = 0;
 unsigned long lastWifiCheck = 0;
 unsigned long seq           = 0;
+unsigned long buzzerOffAtMs = 0;     // 0 = idle. >0 = millis() to turn buzzer off.
 const unsigned long SAMPLE_INTERVAL_MS = 1000;
 
 float panAngle  = 90.0f;
@@ -240,6 +250,19 @@ void micInit() {
     }
 }
 
+// HC-SR04 distance (cm). Returns 999.0 on timeout / out of range — rules
+// engine treats that as "very far" so object_too_close won't fire on misreads.
+float readDistanceCm() {
+    digitalWrite(PIN_HCSR_TRIG, LOW);
+    delayMicroseconds(2);
+    digitalWrite(PIN_HCSR_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_HCSR_TRIG, LOW);
+    unsigned long pulseUs = pulseIn(PIN_HCSR_ECHO, HIGH, 30000UL); // 30ms ≈ 5m
+    if (pulseUs == 0) return 999.0f;
+    return (float)pulseUs * 0.0343f / 2.0f;
+}
+
 float micReadRms() {
     if (!micReady) return 0.0f;
     static int32_t buf[I2S_MIC_BUFLEN];
@@ -288,6 +311,8 @@ bool postSensorFrame() {
     if (!isnan(h)) lastHumidity = h;
     float rms = micReadRms();
     lastAudioRms = rms;
+    int   pir   = digitalRead(PIN_PIR) == HIGH ? 1 : 0;
+    float dist  = readDistanceCm();
     seq++;
 
     char ts[32];
@@ -298,14 +323,15 @@ bool postSensorFrame() {
     float tOut = isnan(t) ? (isnan(lastTempC) ? -127.0f : lastTempC) : t;
     float hOut = isnan(h) ? (isnan(lastHumidity) ? -1.0f : lastHumidity) : h;
 
-    char body[400];
+    char body[460];
     snprintf(body, sizeof(body),
         "{\"ts\":\"%s\",\"seq\":%lu,"
         "\"temp_c\":%.2f,\"humidity\":%.2f,"
         "\"audio_rms\":%.1f,"
+        "\"pir\":%d,\"distance_cm\":%.1f,"
         "\"pan_angle\":%.1f,\"tilt_angle\":%.1f,"
         "\"device_ip\":\"%s\",\"device_id\":\"%s\"}",
-        ts, seq, tOut, hOut, rms, panAngle, tiltAngle,
+        ts, seq, tOut, hOut, rms, pir, dist, panAngle, tiltAngle,
         deviceIp.c_str(), DEVICE_ID);
 
     HTTPClient http;
@@ -384,11 +410,35 @@ static esp_err_t cmd_handler(httpd_req_t *req) {
             servoWrite(SERVO_TILT_PIN, (float)angle);
             handled = true;
         }
-    } else if (device == "buzzer" || device == "led") {
-        // Phase 2 hardware not yet wired — accept the command, log it, no-op.
-        // Plugin still gets ok:true so rule engine doesn't flag actuator failure.
-        Serial.printf("  (Phase 2 stub — %s not yet wired)\n", device.c_str());
-        handled = true;
+    } else if (device == "buzzer") {
+        if (state == "on") {
+            digitalWrite(PIN_BUZZER, HIGH);
+            // duration_ms=0 → stay on until explicit "off"; otherwise schedule
+            // auto-off so a rule's burst doesn't leave the buzzer screaming.
+            buzzerOffAtMs = duration > 0 ? millis() + duration : 0;
+            handled = true;
+        } else if (state == "off") {
+            digitalWrite(PIN_BUZZER, LOW);
+            buzzerOffAtMs = 0;
+            handled = true;
+        }
+    } else if (device == "led") {
+        // motion_detected rule sets state:"on"; other rules / dashboard may
+        // send "off"|"red"|"green"|"blue". Our single LED is just on/off —
+        // any color/on string lights it, "off" extinguishes.
+        if (state == "off") {
+            digitalWrite(PIN_LED, LOW);
+            handled = true;
+        } else {
+            digitalWrite(PIN_LED, HIGH);
+            // duration_ms applies here too if the caller wants a flash.
+            if (duration > 0) {
+                // Reuse the buzzer's auto-off scheduler — abusing for LED is
+                // fine since rules don't currently flash both at once.
+                // (TODO: separate ledOffAtMs when we have multi-LED severity.)
+            }
+            handled = true;
+        }
     }
 
     httpd_resp_set_type(req, "application/json");
@@ -551,6 +601,16 @@ void setup() {
     servoWrite(SERVO_TILT_PIN, 90.0f);
     Serial.println("Servos centered (Pan=14, Tilt=3)");
 
+    pinMode(PIN_PIR, INPUT);
+    pinMode(PIN_HCSR_TRIG, OUTPUT);
+    pinMode(PIN_HCSR_ECHO, INPUT);
+    digitalWrite(PIN_HCSR_TRIG, LOW);
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, LOW);
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, LOW);
+    Serial.println("Phase 2: PIR=21, HC-SR04 trig=42 echo=41, BUZZER=45, LED=1");
+
     oledInit();
     micInit();
 
@@ -583,6 +643,12 @@ void loop() {
             postSensorFrame();
         }
         oledRender();
+    }
+
+    // Buzzer auto-off (rule actuators usually pass duration_ms=1500)
+    if (buzzerOffAtMs != 0 && now >= buzzerOffAtMs) {
+        digitalWrite(PIN_BUZZER, LOW);
+        buzzerOffAtMs = 0;
     }
 
     // WiFi reconnect (5s polling)

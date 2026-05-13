@@ -1,23 +1,23 @@
 /**
  * Sensor frame ingested from the device (ESP32 over WiFi, or mock) at 1 Hz.
  *
- * Phase 1 (current build) reports: temp_c, humidity, audio_rms, pan_angle,
- * tilt_angle. Phase 2 will add pir, lux_raw, distance_cm once those sensors
- * are physically wired — those fields stay optional so the rules engine
- * predicates (`makePredicate` rejects non-numeric values) gracefully no-op
- * for rules referencing missing metrics, and Phase 2 enablement requires no
- * schema migration.
+ * Current build reports: temp_c, humidity, audio_rms, pir, distance_cm,
+ * pan_angle, tilt_angle. lux_raw was reserved for an LDR that was dropped
+ * from the BOM; the field stays optional purely for backward-compat with
+ * older mock recordings and historical schemas. All Phase 2 sensor fields
+ * are optional so the rules engine predicates (`makePredicate` rejects
+ * non-numeric values) gracefully no-op when a field is absent.
  */
 export type SensorFrame = {
   ts: string;
   seq: number;
   temp_c: number;
   humidity: number;
-  /** PIR motion detector (Phase 2). 1 = motion detected this sample, 0 = idle. */
+  /** PIR motion detector. 1 = motion detected this sample, 0 = idle. */
   pir?: 0 | 1;
-  /** LDR analog reading 0..4095 (Phase 2). Higher = brighter. */
+  /** Reserved / deprecated — LDR was dropped from the booth BOM. */
   lux_raw?: number;
-  /** HC-SR04 distance in cm (Phase 2). 999 = out of range / timeout. */
+  /** HC-SR04 distance in cm. 999 = out of range / timeout. */
   distance_cm?: number;
   /** INMP441 mic RMS magnitude this 1Hz window (Phase 1). Roughly 0..15000. */
   audio_rms?: number;
@@ -57,6 +57,11 @@ export type Alert = {
   explanation: string | null;
   suggested_action: string | null;
   actuator_fired: string | null;
+  /** Populated by the v3 broadcast when a rule has `auto_vision: true` and
+   *  vision-1 returned a description for a fresh ESP32 capture. */
+  scene_description?: string | null;
+  /** vision-1 round-trip latency for the auto-snapshot, in ms. */
+  scene_took_ms?: number | null;
 };
 
 export function isSensorFrame(value: unknown): value is SensorFrame {

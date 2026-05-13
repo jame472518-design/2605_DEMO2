@@ -3,10 +3,10 @@ import { ActuatorControls } from "./components/ActuatorControls";
 import { AlertBanner } from "./components/AlertBanner";
 import { CameraCard } from "./components/CameraCard";
 import { JudgePanel } from "./components/JudgePanel";
-import { QrPanel } from "./components/QrPanel";
+// import { QrPanel } from "./components/QrPanel";  // temp disabled — black-screen debug
 import { SensorCard } from "./components/SensorCard";
 import { useSse } from "./lib/sse";
-import type { Alert, SensorFrame } from "./types";
+import type { Alert, AlertUpdate, SensorFrame } from "./types";
 
 const FRAME_BUFFER = 60;
 const ALERT_BUFFER = 20;
@@ -36,22 +36,27 @@ export default function App() {
     });
   }, []);
 
-  const onAlert = useCallback((a: Alert) => {
+  const onAlert = useCallback((a: Alert | AlertUpdate) => {
     setAlerts((prev) => {
       const idx = prev.findIndex((x) => x.id === a.id);
       if (idx >= 0) {
+        // Merge: judge enrichment delivers only {id, explanation,
+        // suggested_action}; auto-vision delivers only {id, scene_description,
+        // scene_took_ms}. They race; merging keeps both wins.
         const next = prev.slice();
-        next[idx] = a;
+        next[idx] = { ...prev[idx]!, ...a };
         return next;
       }
+      // First sighting of this id MUST be the full v1 alert from the rule
+      // engine (broadcast synchronously before any enrichment).
       const next = prev.length >= ALERT_BUFFER ? prev.slice(1) : prev.slice();
-      next.push(a);
+      next.push(a as Alert);
       return next;
     });
   }, []);
 
   useSse<SensorFrame>("/api/sensor/stream", parseJson, onFrame);
-  useSse<Alert>("/api/alert/stream", parseJson, onAlert);
+  useSse<Alert | AlertUpdate>("/api/alert/stream", parseJson, onAlert);
 
   const latest = frames[frames.length - 1];
   const latestAlert = alerts[alerts.length - 1] ?? null;
@@ -150,23 +155,31 @@ export default function App() {
                 : "IDLE"
           }
           history={frames.map((f) => f.pir ?? 0)}
-          rule="NIGHT_INTRUSION + LUX"
+          rule="MOTION_DETECTED  +  vision"
           threshold={
-            latest &&
-            latest.pir === 1 &&
-            latest.lux_raw !== undefined &&
-            latest.lux_raw < 50
-              ? { breached: true, severity: "critical" }
+            latest && latest.pir === 1
+              ? { breached: true, severity: "info" }
               : undefined
           }
         />
         <SensorCard
           slot="04"
-          label="LUX RAW"
-          unit="lx"
-          value={latest?.lux_raw !== undefined ? String(latest.lux_raw) : "—"}
-          history={frames.map((f) => f.lux_raw ?? 0)}
-          rule="<50 = DARK"
+          label="AUDIO RMS"
+          unit="rms"
+          value={
+            latest?.audio_rms !== undefined
+              ? Math.round(latest.audio_rms).toLocaleString()
+              : "—"
+          }
+          history={frames.map((f) => f.audio_rms ?? 0)}
+          rule="NOISE_EVENT  >50k  1s  +  vision"
+          threshold={
+            latest &&
+            latest.audio_rms !== undefined &&
+            latest.audio_rms > 50000
+              ? { breached: true, severity: "info" }
+              : undefined
+          }
         />
         <SensorCard
           slot="05"
@@ -202,7 +215,8 @@ export default function App() {
       </footer>
 
       {/* === FLOATING QR (booth) ========================================== */}
-      <QrPanel />
+      {/* TEMPORARILY DISABLED — debugging black-screen issue */}
+      {/* <QrPanel /> */}
     </div>
   );
 }

@@ -1,17 +1,20 @@
 # demo2 規則設定。Plugin 啟動時讀,改完要重啟 plugin(W2 暫不做 hot-reload)。
 #
 # 每條 rule:
-#   id        : 唯一 ID,也是 alert.rule 的值
-#   severity  : info | warn | critical
-#   when      : 條件,兩種寫法
-#                a. 單一條件:{ metric, op, value, window_s? }
-#                   - 沒給 window_s → 看當下 frame
-#                   - 給 window_s   → 條件需連續為真 window_s 秒
-#                b. 複合條件(同時用):
-#                      all: [簡單條件...]   AND
-#                      any: [簡單條件...]   OR
-#   actuator  : 規則 fire 時送給 Arduino 的命令(可省略)
-#                { device: buzzer|led, state, duration_ms? }
+#   id           : 唯一 ID,也是 alert.rule 的值
+#   severity     : info | warn | critical
+#   when         : 條件,兩種寫法
+#                   a. 單一條件:{ metric, op, value, window_s? }
+#                      - 沒給 window_s → 看當下 frame
+#                      - 給 window_s   → 條件需連續為真 window_s 秒
+#                   b. 複合條件(同時用):
+#                         all: [簡單條件...]   AND
+#                         any: [簡單條件...]   OR
+#   actuator     : 規則 fire 時送給 Arduino 的命令(可省略)
+#                   { device: buzzer|led, state, duration_ms? }
+#   auto_vision  : true 時,規則 fire 後 plugin 會自動抓 ESP32 /capture
+#                   交給 vision-1 agent 寫一句中文描述,然後 alert v3
+#                   廣播時帶 scene_description 欄。預設 false。
 #
 # 支援的 op:>, <, >=, <=, ==, !=
 
@@ -23,14 +26,24 @@ rules:
     when: { metric: temp_c, op: ">", value: 32, window_s: 60 }
     actuator: { device: buzzer, state: "on", duration_ms: 1500 }
 
-  - id: night_intrusion
-    severity: critical
-    when:
-      all:
-        - { metric: pir, op: "==", value: 1 }
-        - { metric: lux_raw, op: "<", value: 50 }
-    actuator: { device: led, state: "red" }
+  # motion_detected:LDR 已退出 BOM,規則從「PIR + 暗光」簡化成純 PIR。
+  # 嚴重度降成 info(任何動作都觸發,沒有環境條件)。
+  # auto_vision 留著 — 動作觸發 → 拍張 ESP32 鏡頭 → 描述「看到什麼」是
+  # 整段 demo 最有趣的一條 trigger chain。
+  - id: motion_detected
+    severity: info
+    when: { metric: pir, op: "==", value: 1 }
+    actuator: { device: led, state: "on" }
+    auto_vision: true
 
   - id: object_too_close
     severity: info
     when: { metric: distance_cm, op: "<", value: 15, window_s: 3 }
+
+  # noise_event:INMP441 RMS 飆高(拍手 / 喊叫 / 玻璃破)→ 拍張現場給 vision 描述
+  # 閾值 50000 是實測 idle 環境上限 ~20k 的 2.5x;1 秒持續避免短瞬尖峰誤觸。
+  # auto_vision=true 是這條的關鍵:聲音事件 → 視覺確認,展場敘事感最強。
+  - id: noise_event
+    severity: info
+    when: { metric: audio_rms, op: ">", value: 50000, window_s: 1 }
+    auto_vision: true

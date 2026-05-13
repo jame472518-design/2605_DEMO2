@@ -11,7 +11,6 @@ function frame(offsetSeconds: number, overrides: Partial<SensorFrame> = {}): Sen
     temp_c: 24,
     humidity: 60,
     pir: 0,
-    lux_raw: 400,
     distance_cm: 80,
     ...overrides,
   };
@@ -78,36 +77,42 @@ describe("RuleEngine", () => {
     });
   });
 
-  describe("night_intrusion", () => {
-    it("does NOT fire when only PIR is high (lux still bright)", () => {
+  describe("motion_detected", () => {
+    it("does NOT fire when PIR is idle", () => {
       const engine = new RuleEngine();
-      const fired = engine.ingest(frame(0, { pir: 1, lux_raw: 400 }));
-      expect(fired.find((a) => a.rule === "night_intrusion")).toBeUndefined();
+      const fired = engine.ingest(frame(0, { pir: 0 }));
+      expect(fired.find((a) => a.rule === "motion_detected")).toBeUndefined();
     });
 
-    it("does NOT fire when only lux is dark (PIR idle)", () => {
+    it("fires immediately on PIR high", () => {
       const engine = new RuleEngine();
-      const fired = engine.ingest(frame(0, { pir: 0, lux_raw: 20 }));
-      expect(fired.find((a) => a.rule === "night_intrusion")).toBeUndefined();
+      const fired = engine.ingest(frame(0, { pir: 1 }));
+      const m = fired.find((a) => a.rule === "motion_detected");
+      expect(m).toBeDefined();
+      expect(m?.severity).toBe("info");
+      expect(m?.actuator_fired).toBe("led");
     });
 
-    it("fires immediately when both conditions hold", () => {
-      const engine = new RuleEngine();
-      const fired = engine.ingest(frame(0, { pir: 1, lux_raw: 20 }));
-      const intrusion = fired.find((a) => a.rule === "night_intrusion");
-      expect(intrusion).toBeDefined();
-      expect(intrusion?.severity).toBe("critical");
-      expect(intrusion?.actuator_fired).toBe("led");
-    });
-
-    it("dedups while still triggered", () => {
+    it("dedups while PIR stays high", () => {
       const engine = new RuleEngine();
       let count = 0;
       for (let i = 0; i < 5; i++) {
-        count += engine.ingest(frame(i, { pir: 1, lux_raw: 20 }))
-          .filter((a) => a.rule === "night_intrusion").length;
+        count += engine.ingest(frame(i, { pir: 1 }))
+          .filter((a) => a.rule === "motion_detected").length;
       }
       expect(count).toBe(1);
+    });
+
+    it("re-arms after PIR drops then rises again", () => {
+      const engine = new RuleEngine();
+      let count = 0;
+      count += engine.ingest(frame(0, { pir: 1 }))
+        .filter((a) => a.rule === "motion_detected").length;
+      count += engine.ingest(frame(1, { pir: 0 }))
+        .filter((a) => a.rule === "motion_detected").length;
+      count += engine.ingest(frame(2, { pir: 1 }))
+        .filter((a) => a.rule === "motion_detected").length;
+      expect(count).toBe(2);
     });
   });
 
