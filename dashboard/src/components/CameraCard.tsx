@@ -513,8 +513,10 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
   const [info, setInfo] = useState<DeviceInfo | null>(null);
   const [imageError, setImageError] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [vision, setVision] = useState<VisionState>({ kind: "idle" });
   const lastIpRef = useRef<string | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   const fetchInfo = useCallback(async () => {
     try {
@@ -536,15 +538,37 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
   }, []);
 
   // Manual reconnect: force <img> remount + clear error + re-poll device-info.
-  // ESP32's :81/stream allows only one client; the previous tab may still hold
-  // the connection — this drops it on our side and the ESP32's keep-alive
-  // timeout reclaims it server-side within a few seconds.
+  // Same Firefox-multipart quirk as pause() — bumping streamKey alone doesn't
+  // abort the old connection (the old <img> element is removed but its in-
+  // flight stream lingers), so we explicitly blank the live src first.
   const reconnect = useCallback(() => {
+    if (imgRef.current) {
+      imgRef.current.src = "about:blank";
+    }
     setImageError(false);
     setVision({ kind: "idle" });
     setStreamKey((k) => k + 1);
+    setPaused(false);
     void fetchInfo();
   }, [fetchInfo]);
+
+  // Pause: release the MJPEG stream so a phone (or any other client) can take
+  // the single-client ESP32 :81/stream slot. Firefox keeps multipart/x-mixed-
+  // replace connections alive even after the <img> unmounts (waiting for the
+  // "next part" to render), so we explicitly blank the src first to force
+  // an HTTP abort. THEN unmount via state change.
+  const pause = useCallback(() => {
+    if (imgRef.current) {
+      imgRef.current.src = "about:blank";
+    }
+    setPaused(true);
+    setVision({ kind: "idle" });
+  }, []);
+  const resume = useCallback(() => {
+    setPaused(false);
+    setImageError(false);
+    setStreamKey((k) => k + 1);
+  }, []);
 
   useEffect(() => {
     void fetchInfo();
@@ -552,17 +576,39 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
     return () => clearInterval(t);
   }, [fetchInfo]);
 
-  // Snapshot via ESP32's /capture endpoint (port 80, not :81 — :81 is MJPEG
-  // multipart and not blob-friendly for a single grab). Convert to data URL,
-  // hand to vision-1. ESP32 firmware sets Access-Control-Allow-Origin: * so
-  // cross-origin from 127.0.0.1:18790 → 10.x.x.x:80 works without proxy.
+  // Auto-retry on stream error — ESP32 releases its single MJPEG slot only
+  // on the next write attempt after the previous client disconnects, which
+  // is a 2-5s window. Without this, a phone scanning the QR right after the
+  // Surface kiosk closes its stream would see "no signal" and have to
+  // manually press RECONNECT. Capped at 5 retries to avoid hammering a
+  // genuinely-dead device.
+  const autoRetryCount = useRef(0);
+  useEffect(() => {
+    if (!imageError || paused) {
+      autoRetryCount.current = 0;
+      return;
+    }
+    if (autoRetryCount.current >= 5) return;
+    const t = setTimeout(() => {
+      autoRetryCount.current += 1;
+      setImageError(false);
+      setStreamKey((k) => k + 1);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [imageError, paused]);
+
+  // Snapshot via plugin proxy /api/esp32/capture (same-origin) — phones
+  // loading the dashboard over HTTPS would otherwise get mixed-content
+  // blocked when fetching ESP32's HTTP /capture directly.
   const describeScene = useCallback(async () => {
-    const ip = info?.device_ip;
-    if (!ip) return;
+    if (!info?.device_ip) return;
     setVision({ kind: "loading" });
     try {
-      const r = await fetch(`http://${ip}/capture`);
-      if (!r.ok) throw new Error(`/capture HTTP ${r.status}`);
+      const token = gatewayToken();
+      const url = new URL("/api/esp32/capture", window.location.origin);
+      if (token) url.searchParams.set("token", token);
+      const r = await fetch(url.toString());
+      if (!r.ok) throw new Error(`/api/esp32/capture HTTP ${r.status}`);
       const blob = await r.blob();
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const fr = new FileReader();
@@ -580,7 +626,20 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
     }
   }, [info?.device_ip]);
 
-  const streaming = info?.camera_stream_url && !imageError;
+  // MJPEG src — goes through plugin proxy (same-origin) for the same
+  // mixed-content reason. Pulls token from window.location each time the
+  // streamKey bumps so a token rotation gets picked up on reconnect.
+  const streamSrc = (() => {
+    if (!info?.camera_stream_url) return null;
+    const token = gatewayToken();
+    const u = new URL("/api/esp32/stream", window.location.origin);
+    if (token) u.searchParams.set("token", token);
+    // streamKey forces <img> remount on RECONNECT/RESUME via different URL.
+    u.searchParams.set("_k", String(streamKey));
+    return u.toString();
+  })();
+
+  const streaming = info?.camera_stream_url && !imageError && !paused;
   const hudLabel = showLabel
     ? `ESP32 / ${info?.device_ip ?? "—"}`
     : `IRIS-01 / ${info?.device_ip ?? "OFFLINE"}`;
@@ -588,11 +647,12 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
   return (
     <div className="relative">
       <div className="aspect-video bg-ink-950 overflow-hidden relative border border-ink-700">
-        {streaming ? (
+        {streaming && streamSrc ? (
           <>
             <img
               key={streamKey}
-              src={info!.camera_stream_url!}
+              ref={imgRef}
+              src={streamSrc}
               alt="ESP32 camera live stream"
               className="w-full h-full object-cover"
               onError={() => setImageError(true)}
@@ -610,6 +670,14 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
               </button>
               <button
                 type="button"
+                onClick={pause}
+                title="釋出 MJPEG 連線(讓手機可以接管畫面)"
+                className="border border-accent-warn/70 bg-ink-950/70 text-accent-warn hover:bg-accent-warn/20 px-2 py-1 text-[10px] tracking-widest font-mono"
+              >
+                ⏸ PAUSE
+              </button>
+              <button
+                type="button"
                 onClick={reconnect}
                 title="重新拉一次 MJPEG 連線(畫面卡住時用)"
                 className="border border-smoke-500/60 bg-ink-950/70 text-smoke-300 hover:bg-ink-800 px-2 py-1 text-[10px] tracking-widest font-mono"
@@ -621,6 +689,26 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
               state={vision}
               onDismiss={() => setVision({ kind: "idle" })}
             />
+          </>
+        ) : paused ? (
+          <>
+            <HudOverlay label={hudLabel} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center px-6 max-w-md">
+                <p className="t-meta text-accent-warn mb-1">stream paused</p>
+                <p className="text-xs text-smoke-400 font-han mb-3 leading-relaxed">
+                  已釋出 ESP32 :81/stream 連線。手機(或任何其他裝置)
+                  現在可以掃 QR 接管畫面。要拿回來按下面 ▶ RESUME。
+                </p>
+                <button
+                  type="button"
+                  onClick={resume}
+                  className="border border-accent-info text-accent-info hover:bg-accent-info/10 px-4 py-2 font-mono text-sm tracking-widest"
+                >
+                  ▶ RESUME
+                </button>
+              </div>
+            </div>
           </>
         ) : (
           <>

@@ -124,6 +124,11 @@ export class Vision {
           stream: false,
           format: "json",
           options: { temperature: 0.2, num_predict: 120 },
+          // Keep the VLM resident — booth visitors hit SCAN unpredictably and
+          // the 30-60s cold reload of qwen2.5vl:3b (10GB working set) is a
+          // demo-killer. "10m" means Ollama won't evict for 10 minutes after
+          // the most recent call.
+          keep_alive: "10m",
         }),
         signal: ctrl.signal,
       });

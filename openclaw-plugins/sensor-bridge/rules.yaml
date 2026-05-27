@@ -28,11 +28,14 @@ rules:
 
   # motion_detected:LDR 已退出 BOM,規則從「PIR + 暗光」簡化成純 PIR。
   # 嚴重度降成 info(任何動作都觸發,沒有環境條件)。
+  # window_s: 1 是軟體 debounce — HC-SR501 偶爾短瞬抖動 (~100-500ms 假高)
+  # 用 1 秒過濾;真實動作只慢 1 秒就 fire,booth 節奏舒服。
+  # 太多誤觸發再拉長到 2-3 秒;反過來真實動作 miss 再改 0(即時)。
   # auto_vision 留著 — 動作觸發 → 拍張 ESP32 鏡頭 → 描述「看到什麼」是
   # 整段 demo 最有趣的一條 trigger chain。
   - id: motion_detected
     severity: info
-    when: { metric: pir, op: "==", value: 1 }
+    when: { metric: pir, op: "==", value: 1, window_s: 1 }
     actuator: { device: led, state: "on" }
     auto_vision: true
 

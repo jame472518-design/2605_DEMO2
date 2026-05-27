@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Strix Halo Local LLM × Agent — demo2 進度報告</title>
+<style>
+  @page { size: A4; margin: 0.9cm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Noto Sans TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+    color: #1a1a1a;
+    margin: 0;
+    line-height: 1.42;
+    background: #fff;
+    font-size: 11.5px;
+  }
+  .page { max-width: 780px; margin: 0 auto; padding: 8px 0; }
+
+  /* Header */
+  .header { border-bottom: 2px solid #1a3b6e; padding-bottom: 6px; margin-bottom: 8px; }
+  .header h1 { margin: 0; font-size: 20px; color: #1a3b6e; letter-spacing: 0.3px; }
+  .header .subtitle { margin: 3px 0 0; font-size: 12px; color: #333; }
+  .header .meta { margin-top: 2px; font-size: 10px; color: #888; font-family: "Consolas", monospace; }
+
+  /* Section heading */
+  h2 {
+    font-size: 13.5px;
+    color: #1a3b6e;
+    margin: 9px 0 4px;
+    padding-left: 6px;
+    border-left: 4px solid #1a3b6e;
+  }
+
+  /* Goals — three pillars */
+  .goals {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 7px;
+    margin: 5px 0 8px;
+  }
+  .goals .goal {
+    border: 1px solid #c5cfdf;
+    background: #f6f8fb;
+    padding: 7px 9px 7px 12px;
+    border-radius: 3px;
+    position: relative;
+  }
+  .goals .goal .num {
+    position: absolute;
+    top: -7px;
+    left: 6px;
+    background: #1a3b6e;
+    color: #fff;
+    width: 17px;
+    height: 17px;
+    line-height: 17px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: bold;
+    font-family: "Consolas", monospace;
+  }
+  .goals .goal h3 { margin: 3px 0 3px; font-size: 12px; color: #1a3b6e; }
+  .goals .goal p { margin: 0; font-size: 10.5px; color: #333; line-height: 1.38; }
+  .goals .goal small { color: #888; font-size: 9.5px; }
+
+  /* Concept diagram */
+  .concept {
+    display: flex; align-items: stretch; gap: 5px;
+    background: #f6f8fb; border: 1px solid #d8e0ee; padding: 7px;
+    margin: 3px 0 8px;
+  }
+  .concept .box {
+    flex: 1; background: #fff; border: 1px solid #c5cfdf;
+    border-radius: 3px; padding: 6px 8px; min-height: 78px;
+  }
+  .concept .box h3 {
+    margin: 0 0 2px; font-size: 11px; color: #1a3b6e;
+    border-bottom: 1px dotted #c5cfdf; padding-bottom: 1px;
+  }
+  .concept .box ul { margin: 0; padding-left: 13px; font-size: 10px; color: #333; line-height: 1.38; }
+  .concept .box small { color: #666; font-style: italic; font-size: 9px; }
+  .concept .arrow {
+    flex: 0 0 16px; color: #1a3b6e; font-size: 14px; font-weight: bold;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .concept .arrow small { font-size: 8px; color: #888; font-weight: normal; margin-top: -2px; }
+
+  /* Capability table */
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 3px 0 5px; }
+  th { background: #1a3b6e; color: #fff; padding: 4px 7px; text-align: left; font-weight: 500; font-size: 11px; }
+  td { border-bottom: 1px solid #e4e9f3; padding: 3.5px 7px; vertical-align: top; }
+  td:first-child { font-weight: 600; color: #1a3b6e; width: 30%; }
+
+  /* Visual: main dashboard full width */
+  .main-visual {
+    margin: 6px 0 4px;
+    position: relative;
+  }
+  .main-visual img {
+    width: 100%; height: auto; display: block;
+    border: 1px solid #c8c8c8; border-radius: 3px;
+  }
+  .caption {
+    font-size: 9.5px; color: #666; margin-top: 2px; line-height: 1.4;
+  }
+  .pin {
+    position: absolute; background: #e23a3a; color: #fff;
+    border-radius: 50%; width: 17px; height: 17px;
+    line-height: 17px; text-align: center; font-weight: bold;
+    font-size: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    font-family: "Consolas", monospace;
+  }
+
+  /* Two side-by-side support visuals */
+  .side-by-side {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 4px 0 6px;
+  }
+  .side-by-side .item img {
+    width: 100%; height: auto; display: block;
+    border: 1px solid #c8c8c8; border-radius: 3px;
+    object-fit: cover;
+    max-height: 165px;
+  }
+  .side-by-side .item .label {
+    font-size: 10px; color: #1a3b6e; font-weight: 600;
+    margin: 3px 0 1px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+
+  /* Compact lists */
+  ul.compact { font-size: 10.5px; margin: 3px 0; padding-left: 16px; }
+  ul.compact li { margin-bottom: 1px; line-height: 1.38; }
+  ul.compact b { color: #1a3b6e; }
+  ul.compact .future { color: #e23a3a; font-weight: 600; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  footer {
+    margin-top: 8px; padding-top: 4px; border-top: 1px dotted #c8c8c8;
+    font-size: 9.5px; color: #888; font-family: "Consolas", monospace;
+    display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <h1>Strix Halo Local LLM × Agent — demo2 進度報告</h1>
+    <p class="subtitle">驗證 <b>Strix Halo 本機推論能力</b> · 多端 sensor 接 <b>OpenClaw agent</b> 自動判斷與通知 · 100% 離線 / 無雲</p>
+    <p class="meta">milestone: w5.5-phase2-and-audio-vision · 報告日:2026-05-13 · 前期開發機:Surface(過渡)</p>
+  </div>
+
+  <h2>這個 demo 在驗證什麼</h2>
+  <div class="goals">
+    <div class="goal">
+      <span class="num">1</span>
+      <h3>Strix Halo Local 推論</h3>
+      <p>證明本機可 <b>local 跑模型</b> 不上雲、不依賴外網,並量化效能。
+        <small>現:Surface CPU ~25s · 目標:Strix Halo 3-5s。</small></p>
+    </div>
+    <div class="goal">
+      <span class="num">2</span>
+      <h3>gemma4 + Agent 自動化</h3>
+      <p>最終以 <b>Ollama gemma4</b> 取代過渡模型,搭 <b>OpenClaw agent</b> 做代理、條件通知、判斷後動作。
+        <small>現以 qwen2 / qwen2.5vl 驗 pipeline。</small></p>
+    </div>
+    <div class="goal">
+      <span class="num">3</span>
+      <h3>多端裝置協作</h3>
+      <p>主機為中樞,搭 <b>Trimble T70</b> 等行動端走區網,加上 <b>外接 sensor / 鏡頭</b>,agent 接訊號決定下一步。
+        <small>已驗:Surface + Android + ESP32。</small></p>
+    </div>
+  </div>
+
+  <h2>架構一張圖</h2>
+  <div class="concept">
+    <div class="box">
+      <h3>外接感測 / 邊緣</h3>
+      <ul>
+        <li>溫濕度 · PIR · 距離 · 麥克風</li>
+        <li>OV2640 鏡頭(即時影像)</li>
+        <li>蜂鳴器 · LED(反控)</li>
+        <li>ESP32-S3-CAM 串接</li>
+      </ul>
+    </div>
+    <div class="arrow">▶<small>WiFi</small></div>
+    <div class="box">
+      <h3>主機(Strix Halo)</h3>
+      <ul>
+        <li>規則引擎(毫秒)</li>
+        <li>Ollama local LLM 推論</li>
+        <li>OpenClaw agent runtime</li>
+        <li>事件 → 判斷 → 通知 / 反控</li>
+      </ul>
+      <small>過渡:Surface Snapdragon X</small>
+    </div>
+    <div class="arrow">▶<small>區網</small></div>
+    <div class="box">
+      <h3>多端觀看 / 操作</h3>
+      <ul>
+        <li>主螢幕 kiosk(展位中樞)</li>
+        <li>Trimble T70 / Android 手機</li>
+        <li>掃 QR 加入,事件即時同步</li>
+        <li>手機鏡頭也可丟給 agent</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>目前能力(已實作 / 已驗證)</h2>
+  <table>
+    <thead><tr><th>能力</th><th>具體成果</th></tr></thead>
+    <tbody>
+      <tr><td>邊緣感測串流</td><td>5 種訊號(溫 / 濕 / 動作 / 距離 / 音量)1Hz 上 dashboard,所有裝置即時同步</td></tr>
+      <tr><td>事件規則引擎</td><td>YAML 設定式規則,4 條已上線(熱、動作、近距、音量),毫秒級觸發、不依賴 LLM</td></tr>
+      <tr><td>LLM 中文事件解釋</td><td>規則 fire → agent 自動寫一句中文「發生什麼 + 建議動作」(見下圖 A 區)</td></tr>
+      <tr><td>視覺 LLM 場景描述</td><td>動作 / 拍手 / 手動 SCAN → agent 拍照 → 中文描述「看到什麼」(見特寫圖)</td></tr>
+      <tr><td>反控執行</td><td>規則或人手觸發 → 蜂鳴器、LED、鏡頭旋轉 — 證明 agent 能 act on 訊號</td></tr>
+      <tr><td>多端同步</td><td>手機掃 QR 進同一 dashboard,事件、警報、AI 描述跨裝置即時一致</td></tr>
+    </tbody>
+  </table>
+
+  <h2>主畫面:Dashboard</h2>
+  <div class="main-visual">
+    <img src="dashboard.png" alt="Surface dashboard 主畫面">
+    <!-- A / B / C / D pins — 大致位置,可依實際截圖微調 -->
+    <span class="pin" style="left:4%; top:18%;">A</span>
+    <span class="pin" style="left:32%; top:50%;">B</span>
+    <span class="pin" style="left:55%; top:62%;">C</span>
+    <span class="pin" style="left:4%; top:84%;">D</span>
+    <div class="caption">
+      <b style="color:#e23a3a;">A</b> agent 中文警報(motion_detected / 嚴重度 info / 建議動作)·
+      <b style="color:#e23a3a;">B</b> 雙鏡頭即時影像(ESP32 + USB Webcam)·
+      <b style="color:#e23a3a;">C</b> visual agent 即時場景描述 ·
+      <b style="color:#e23a3a;">D</b> 5 條感測即時數值 + sparkline + 對應規則
+    </div>
+  </div>
+
+  <h2>延伸應用</h2>
+  <div class="side-by-side">
+    <div class="item">
+      <img src="ai-detail.png" alt="Visual agent 細節描述特寫">
+      <div class="label">AI 場景描述細節</div>
+      <div class="caption">
+        Visual agent 對著一個 USB Webcam 包裝盒,中文描述出商品名稱與所有特點關鍵字
+        (Videoconferencing / Photographing / Platform live broadcast / USB 2.0 / Ultra high speed / plug and play)。
+        69.7s × qwen2.5vl(Surface CPU);Strix Halo 預期 < 10s。
+      </div>
+    </div>
+    <div class="item">
+      <img src="IMG20260513145728_033646.jpg" alt="Trimble T70 區網接入示意">
+      <div class="label">Trimble T70 區網接入</div>
+      <div class="caption">
+        T70 工業手持端掃 QR 加入區網,主機 dashboard 同步顯示。
+        手機**前後鏡頭也能丟給 agent 描述**,展現外接攝影設備不必只是 ESP32,
+        手持端本身就是 sensor。
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h2>限制 / 已知議題</h2>
+      <ul class="compact">
+        <li><b>主機效能</b> — Surface 是過渡,Strix Halo 才是 demo 目標(等機台)</li>
+        <li><b>模型過渡</b> — 目前 qwen2 / qwen2.5vl,<span class="future">最終切 gemma4</span></li>
+        <li><b>單機展位</b> — 訪客手機需連同一 WiFi 才能掃 QR 加入</li>
+        <li><b>鏡頭單客戶端</b>(韌體限制)— 主螢幕與手機輪流看(已知,韌體升級即解)</li>
+      </ul>
+    </div>
+    <div>
+      <h2>下一階段</h2>
+      <ul class="compact">
+        <li><span class="future">Strix Halo 機台接手</span>,實測本機推論延遲(目標 3-5s)</li>
+        <li><span class="future">gemma4 模型移植</span> + agent 自動通知 / 代理工作流</li>
+        <li>Agent 觸發外部動作(Email / Slack / 設備控制)</li>
+        <li>鏡頭多人同看(韌體 multi-client)</li>
+        <li>無人時 90s attract loop 自動劇本</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <span>9 個 milestone tag(w1 → w5.5)· <code>scripts\start-booth.ps1</code> 一鍵啟動</span>
+    <span>edge sensing · local AI · agent automation · 不上雲</span>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -126,6 +126,24 @@ if (-not $token) { Fail "OPENCLAW_GATEWAY_TOKEN missing in $envPath" }
 # without an HTTPS cert. Phones scan the QR on the dashboard for the LAN URL.
 $url = "http://127.0.0.1:18790/?token=$token"
 
+# -- Pre-warm Ollama VLM (background) -------------------------------------
+# qwen2.5vl:3b weighs ~10GB resident. First call after boot or after the
+# Ollama idle eviction takes 30-60s — booth-killing latency. Pre-warm now
+# so the first SCAN is already warm. Per-call `keep_alive: "10m"` in
+# vision.ts keeps it alive across visitor gaps.
+$visionModel = "qwen2.5vl:3b"
+Step "Pre-warming $visionModel (background, won't block kiosk launch)"
+$warmCmd = @"
+try {
+    `$body = '{`"model`":`"$visionModel`",`"prompt`":`" `",`"stream`":false,`"keep_alive`":`"10m`",`"options`":{`"num_predict`":1}}'
+    `$null = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -Body `$body -ContentType 'application/json' -TimeoutSec 180
+    Write-Host '[ollama-warmup] $visionModel pre-warmed and pinned for 10m' -ForegroundColor Green
+} catch {
+    Write-Host ('[ollama-warmup] failed: ' + `$_.Exception.Message) -ForegroundColor Yellow
+}
+"@
+Start-Process powershell -ArgumentList "-WindowStyle","Hidden","-Command",$warmCmd | Out-Null
+
 # -- Launch Firefox in kiosk ----------------------------------------------
 
 Step "Launching Firefox kiosk"

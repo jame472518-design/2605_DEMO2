@@ -73,7 +73,7 @@ export function AlertBanner({ alert }: Props) {
               <span>{alert.explanation}</span>
             ) : (
               <span className="text-smoke-400 font-mono text-xs tracking-wide">
-                {Object.entries(alert.trigger)
+                {Object.entries(alert.trigger ?? {})
                   .map(
                     ([k, v]) =>
                       `${k}=${typeof v === "number" ? v.toFixed(1) : String(v)}`,
