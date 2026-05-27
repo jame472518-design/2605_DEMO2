@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActuatorControls } from "./components/ActuatorControls";
 import { AlertBanner } from "./components/AlertBanner";
+import { AlertPushBanner } from "./components/AlertPushBanner";
 import { CameraCard } from "./components/CameraCard";
 import { JudgePanel } from "./components/JudgePanel";
-// import { QrPanel } from "./components/QrPanel";  // temp disabled — black-screen debug
+import { MockController } from "./components/MockController";
+import { QrPanel } from "./components/QrPanel";
 import { SensorCard } from "./components/SensorCard";
+import { VlmChat } from "./components/VlmChat";
 import { useSse } from "./lib/sse";
 import type { Alert, AlertUpdate, SensorFrame } from "./types";
+
+// View routing via location hash. No router lib — the app has two views
+// (dashboard, vlm chat) and hashchange keeps the URL shareable without
+// touching server routing.
+type View = "dashboard" | "vlm";
+
+function viewFromHash(): View {
+  return window.location.hash.startsWith("#/vlm") ? "vlm" : "dashboard";
+}
 
 const FRAME_BUFFER = 60;
 const ALERT_BUFFER = 20;
@@ -25,6 +37,22 @@ function useUtcClock(): string {
 }
 
 export default function App() {
+  const [view, setView] = useState<View>(viewFromHash);
+
+  useEffect(() => {
+    const onHashChange = () => setView(viewFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  if (view === "vlm") {
+    return <VlmChat />;
+  }
+
+  return <Dashboard />;
+}
+
+function Dashboard() {
   const [frames, setFrames] = useState<SensorFrame[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
 
@@ -47,8 +75,18 @@ export default function App() {
         next[idx] = { ...prev[idx]!, ...a };
         return next;
       }
-      // First sighting of this id MUST be the full v1 alert from the rule
-      // engine (broadcast synchronously before any enrichment).
+      // First sighting of this id: only accept if it's a full v1 alert.
+      // If it's a partial enrichment (we missed v1 — replay buffer rolled
+      // off or plugin restarted between v1 and v2/v3), drop it. Otherwise
+      // AlertBanner will Object.entries(undefined trigger) → crash.
+      if (
+        typeof (a as Alert).rule !== "string" ||
+        typeof (a as Alert).severity !== "string" ||
+        !(a as Alert).trigger ||
+        typeof (a as Alert).trigger !== "object"
+      ) {
+        return prev;
+      }
       const next = prev.length >= ALERT_BUFFER ? prev.slice(1) : prev.slice();
       next.push(a as Alert);
       return next;
@@ -103,6 +141,14 @@ export default function App() {
               label="seq"
               value={latest ? String(latest.seq).padStart(5, "0") : "—"}
             />
+            <a
+              href="#/vlm"
+              title="開啟 VLM agent 對話視窗"
+              className="ml-auto inline-flex items-center gap-2 border border-accent-info/70 text-accent-info hover:bg-accent-info/10 px-2.5 py-1.5 font-mono text-[11px] tracking-hud transition-colors"
+            >
+              <span className="w-1.5 h-1.5 bg-accent-info" aria-hidden />
+              [VLM]
+            </a>
           </div>
 
           {/* Clock */}
@@ -215,8 +261,16 @@ export default function App() {
       </footer>
 
       {/* === FLOATING QR (booth) ========================================== */}
-      {/* TEMPORARILY DISABLED — debugging black-screen issue */}
-      {/* <QrPanel /> */}
+      <QrPanel />
+
+      {/* === FLOATING INGEST MOCK CONTROLLER ============================== */}
+      {/* Stacked above QrPanel; dashboard-only (App.tsx gates by hash). */}
+      <MockController />
+
+      {/* === MOBILE PUSH-STYLE ALERT BANNER =============================== */}
+      {/* Self-gates on (pointer: coarse) — desktop kiosk relies on the
+          big AlertBanner above; only touch devices see this popup. */}
+      <AlertPushBanner alert={latestAlert} />
     </div>
   );
 }

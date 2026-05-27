@@ -8,10 +8,11 @@ import {
 } from "openclaw/plugin-sdk/core";
 import { sendActuator } from "./actuator.js";
 import { Judge } from "./judge.js";
+import { MockFrameGenerator } from "./mockFrames.js";
 import { RuleEngine } from "./rules.js";
 import { SseChannel } from "./sse.js";
 import { servePlaceholder, serveStatic } from "./static.js";
-import { isSensorFrame, type ActuatorCommand } from "./types.js";
+import { isSensorFrame, type ActuatorCommand, type SensorFrame } from "./types.js";
 import { Vision } from "./vision.js";
 
 /**
@@ -25,6 +26,7 @@ import { Vision } from "./vision.js";
  *   OPENCLAW_DEMO2_OLLAMA_URL     — Ollama HTTP API URL (default: http://127.0.0.1:11434)
  *   OPENCLAW_DEMO2_JUDGE_MODEL    — Ollama model id for judge-1 (default: qwen2:1.5b)
  *   OPENCLAW_DEMO2_VISION_MODEL   — Ollama VLM id for vision-1 (default: qwen2.5vl:3b)
+ *   OPENCLAW_DEMO2_VLM_MODEL      — Ollama VLM id for free-form chat (default: qwen2.5vl:3b)
  */
 
 const PLUGIN_ID = "sensor-bridge";
@@ -80,6 +82,16 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Duplicate of vision.ts's stripDataUriPrefix — small enough that re-exporting
+// isn't worth the import churn. Ollama expects raw base64 in messages[i].images;
+// canvas.toDataURL() returns "data:image/jpeg;base64,<...>". Strip the prefix.
+function stripDataUriPrefix(b64: string): string {
+  const trimmed = b64.trim();
+  const comma = trimmed.indexOf(",");
+  if (trimmed.startsWith("data:") && comma > 0) return trimmed.slice(comma + 1);
+  return trimmed;
+}
+
 function extractToken(req: IncomingMessage): string {
   const auth = req.headers.authorization;
   const headerVal = Array.isArray(auth) ? auth[0] ?? "" : auth ?? "";
@@ -121,6 +133,7 @@ export default definePluginEntry({
     const ollamaBaseUrl = env.OPENCLAW_DEMO2_OLLAMA_URL ?? "http://127.0.0.1:11434";
     const judgeModel = env.OPENCLAW_DEMO2_JUDGE_MODEL ?? "qwen2:1.5b";
     const visionModel = env.OPENCLAW_DEMO2_VISION_MODEL ?? "qwen2.5vl:3b";
+    const vlmChatModel = env.OPENCLAW_DEMO2_VLM_MODEL ?? "qwen2.5vl:3b";
     const log = api.logger;
     const expectedToken = resolveGatewayToken(api);
 
@@ -196,6 +209,116 @@ export default definePluginEntry({
       return true;
     };
 
+    /**
+     * Shared post-ingest pipeline: broadcast on sensorSse, push through rule
+     * engine, then for each fired alert: broadcast alert v1, dispatch actuator,
+     * async judge enrichment, optional auto-vision capture.
+     *
+     * Called by both the real /api/sensor/ingest HTTP handler (updateDevice
+     * = true, so lastDevice tracks the ESP32) and the synthetic mock tick
+     * (updateDevice = false, so mock traffic never refreshes lastDevice and
+     * "auto" mode correctly yields the moment real hardware appears).
+     *
+     * Returns the count of alerts fired so the ingest handler can echo it.
+     */
+    const processFrame = (
+      frame: SensorFrame,
+      opts: { updateDevice: boolean },
+    ): number => {
+      if (opts.updateDevice && frame.device_ip) {
+        lastDevice = {
+          ip: frame.device_ip,
+          id: frame.device_id ?? null,
+          ts: Date.now(),
+        };
+      }
+      sensorSse.broadcast(frame);
+      const fired = engine.ingest(frame);
+      for (const alert of fired) {
+        alertSse.broadcast(alert);
+        log.info(
+          `[${PLUGIN_ID}] alert fired rule=${alert.rule} severity=${alert.severity} actuator=${alert.actuator_fired ?? "-"}`,
+        );
+        const actuator = engine.getActuator(alert.rule);
+        if (actuator) {
+          void sendActuator(getActuatorTarget(), actuator as ActuatorCommand, log);
+        }
+        // Async enrichment(s) — each broadcasts a partial alert keyed by id.
+        // Dashboard's onAlert merges by id, so the two enrichments below race
+        // safely: judge fills explanation/suggested_action, vision fills
+        // scene_description. v1 already has the trigger/severity/etc.
+        void (async () => {
+          const t0 = Date.now();
+          const reply = await judge.judge(alert, log);
+          const dt = Date.now() - t0;
+          if (reply) {
+            alertSse.broadcast({
+              id: alert.id,
+              explanation: reply.explanation,
+              suggested_action: reply.suggested_action,
+            });
+            log.info(
+              `[${PLUGIN_ID}] judge enriched ${alert.rule} in ${dt}ms — ` +
+                `explanation="${reply.explanation}" action="${reply.suggested_action}"`,
+            );
+          } else {
+            log.warn(`[${PLUGIN_ID}] judge returned null for ${alert.rule} after ${dt}ms`);
+          }
+        })();
+
+        // Optional auto-vision: rules with `auto_vision: true` get a fresh
+        // ESP32 /capture snapshot fed to vision-1; the resulting Chinese
+        // scene description is patched into the alert. Skipped silently if
+        // no ESP32 has been seen recently (DEVICE_TTL_MS expired) — which
+        // is the normal case for mock-generated frames.
+        if (engine.isAutoVision(alert.rule)) {
+          void (async () => {
+            if (!isDeviceFresh()) {
+              log.warn(
+                `[${PLUGIN_ID}] auto-vision: no fresh ESP32 device — skipping for ${alert.rule}`,
+              );
+              return;
+            }
+            const ip = lastDevice!.ip;
+            const t0 = Date.now();
+            try {
+              const ctrl = new AbortController();
+              const tid = setTimeout(() => ctrl.abort(), 5000);
+              const cap = await fetch(`http://${ip}/capture`, { signal: ctrl.signal });
+              clearTimeout(tid);
+              if (!cap.ok) throw new Error(`/capture HTTP ${cap.status}`);
+              const buf = Buffer.from(await cap.arrayBuffer());
+              const b64 = buf.toString("base64");
+              const reply = await vision.describe(
+                b64,
+                `${alert.rule} alert capture`,
+                log,
+              );
+              const dt = Date.now() - t0;
+              if (reply) {
+                alertSse.broadcast({
+                  id: alert.id,
+                  scene_description: reply.description,
+                  scene_took_ms: dt,
+                });
+                log.info(
+                  `[${PLUGIN_ID}] auto-vision ${alert.rule} in ${dt}ms — "${reply.description}"`,
+                );
+              } else {
+                log.warn(
+                  `[${PLUGIN_ID}] auto-vision ${alert.rule} returned null after ${dt}ms`,
+                );
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log.warn(`[${PLUGIN_ID}] auto-vision ${alert.rule} failed: ${msg}`);
+            }
+          })();
+        }
+      }
+      return fired.length;
+    };
+
     // POST /api/sensor/ingest — Python bridge pushes a sensor frame.
     api.registerHttpRoute({
       path: "/api/sensor/ingest",
@@ -216,98 +339,76 @@ export default definePluginEntry({
           writeJson(res, 400, { ok: false, error: "invalid sensor frame shape" });
           return true;
         }
-        const frame = body.value;
-        if (frame.device_ip) {
-          lastDevice = {
-            ip: frame.device_ip,
-            id: frame.device_id ?? null,
-            ts: Date.now(),
-          };
-        }
-        sensorSse.broadcast(frame);
-        const fired = engine.ingest(frame);
-        for (const alert of fired) {
-          alertSse.broadcast(alert);
-          log.info(
-            `[${PLUGIN_ID}] alert fired rule=${alert.rule} severity=${alert.severity} actuator=${alert.actuator_fired ?? "-"}`,
-          );
-          const actuator = engine.getActuator(alert.rule);
-          if (actuator) {
-            void sendActuator(getActuatorTarget(), actuator as ActuatorCommand, log);
-          }
-          // Async enrichment(s) — each broadcasts a partial alert keyed by id.
-          // Dashboard's onAlert merges by id, so the two enrichments below race
-          // safely: judge fills explanation/suggested_action, vision fills
-          // scene_description. v1 already has the trigger/severity/etc.
-          void (async () => {
-            const t0 = Date.now();
-            const reply = await judge.judge(alert, log);
-            const dt = Date.now() - t0;
-            if (reply) {
-              alertSse.broadcast({
-                id: alert.id,
-                explanation: reply.explanation,
-                suggested_action: reply.suggested_action,
-              });
-              log.info(
-                `[${PLUGIN_ID}] judge enriched ${alert.rule} in ${dt}ms — ` +
-                  `explanation="${reply.explanation}" action="${reply.suggested_action}"`,
-              );
-            } else {
-              log.warn(`[${PLUGIN_ID}] judge returned null for ${alert.rule} after ${dt}ms`);
-            }
-          })();
+        const alerts = processFrame(body.value, { updateDevice: true });
+        writeJson(res, 200, { ok: true, alerts });
+        return true;
+      },
+    });
 
-          // Optional auto-vision: rules with `auto_vision: true` get a fresh
-          // ESP32 /capture snapshot fed to vision-1; the resulting Chinese
-          // scene description is patched into the alert. Skipped silently if
-          // no ESP32 has been seen recently (DEVICE_TTL_MS expired).
-          if (engine.isAutoVision(alert.rule)) {
-            void (async () => {
-              if (!isDeviceFresh()) {
-                log.warn(
-                  `[${PLUGIN_ID}] auto-vision: no fresh ESP32 device — skipping for ${alert.rule}`,
-                );
-                return;
-              }
-              const ip = lastDevice!.ip;
-              const t0 = Date.now();
-              try {
-                const ctrl = new AbortController();
-                const tid = setTimeout(() => ctrl.abort(), 5000);
-                const cap = await fetch(`http://${ip}/capture`, { signal: ctrl.signal });
-                clearTimeout(tid);
-                if (!cap.ok) throw new Error(`/capture HTTP ${cap.status}`);
-                const buf = Buffer.from(await cap.arrayBuffer());
-                const b64 = buf.toString("base64");
-                const reply = await vision.describe(
-                  b64,
-                  `${alert.rule} alert capture`,
-                  log,
-                );
-                const dt = Date.now() - t0;
-                if (reply) {
-                  alertSse.broadcast({
-                    id: alert.id,
-                    scene_description: reply.description,
-                    scene_took_ms: dt,
-                  });
-                  log.info(
-                    `[${PLUGIN_ID}] auto-vision ${alert.rule} in ${dt}ms — "${reply.description}"`,
-                  );
-                } else {
-                  log.warn(
-                    `[${PLUGIN_ID}] auto-vision ${alert.rule} returned null after ${dt}ms`,
-                  );
-                }
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                log.warn(`[${PLUGIN_ID}] auto-vision ${alert.rule} failed: ${msg}`);
-              }
-            })();
-          }
+    // --- Synthetic mock generator (booth fallback) ------------------------
+    // Drives a 1Hz synthetic sensor stream when no real ESP32 is broadcasting,
+    // so a dashboard at the booth never shows empty "—" cards. Modes:
+    //   "auto"  : emit only when isDeviceFresh() === false (default).
+    //   "force" : emit every tick regardless of device state (debug).
+    //   "off"   : never emit (clean-room mode).
+    // Frames are pushed through the SAME processFrame() pipeline as real
+    // ingest, with updateDevice=false so synthetic traffic never masks a real
+    // ESP32 reappearing on the LAN.
+    type MockMode = "auto" | "force" | "off";
+    let mockMode: MockMode = "auto";
+    const mockGen = new MockFrameGenerator();
+    let lastMockEmitTs = 0;
+    const QUIET_GAP_MS = 5_000;
+
+    const mockInterval = setInterval(() => {
+      if (mockMode === "off") return;
+      if (mockMode === "auto" && isDeviceFresh()) return;
+      const now = Date.now();
+      if (now - lastMockEmitTs > QUIET_GAP_MS) {
+        log.info(`[${PLUGIN_ID}] mock generator active (no fresh ESP32 device)`);
+      }
+      lastMockEmitTs = now;
+      const frame = mockGen.tick(now);
+      processFrame(frame, { updateDevice: false });
+    }, 1000);
+
+    // GET /api/dev/mock — report current mock mode + whether the generator
+    // is actually emitting this instant (matters for "auto" mode where it
+    // pauses while a real ESP32 is fresh).
+    api.registerHttpRoute({
+      path: "/api/dev/mock",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method === "GET") {
+          if (!requireToken(req, res)) return true;
+          const isEmitting =
+            mockMode === "force" || (mockMode === "auto" && !isDeviceFresh());
+          writeJson(res, 200, { mode: mockMode, is_emitting: isEmitting });
+          return true;
         }
-        writeJson(res, 200, { ok: true, alerts: fired.length });
+        if (req.method === "POST") {
+          if (!requireToken(req, res)) return true;
+          const body = await readJsonBody(req);
+          if (!body.ok) {
+            writeJson(res, 400, { ok: false, error: body.error });
+            return true;
+          }
+          const payload = body.value as { mode?: unknown };
+          const requested = payload.mode;
+          if (requested !== "auto" && requested !== "force" && requested !== "off") {
+            writeJson(res, 400, {
+              ok: false,
+              error: "mode must be 'auto', 'force', or 'off'",
+            });
+            return true;
+          }
+          mockMode = requested;
+          log.info(`[${PLUGIN_ID}] mock mode → ${mockMode}`);
+          writeJson(res, 200, { ok: true, mode: mockMode });
+          return true;
+        }
+        writeJson(res, 405, { ok: false, error: "method not allowed" });
         return true;
       },
     });
@@ -456,6 +557,124 @@ export default definePluginEntry({
       },
     });
 
+    // GET /api/esp32/capture — same-origin proxy for the ESP32's single-JPEG
+    // /capture endpoint. Phones loading the dashboard over HTTPS can't fetch
+    // http://<esp32>/capture directly (mixed-content block); this route
+    // serves it through the gateway so it inherits the HTTPS-proxy origin.
+    api.registerHttpRoute({
+      path: "/api/esp32/capture",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method !== "GET") {
+          writeJson(res, 405, { ok: false, error: "method not allowed" });
+          return true;
+        }
+        if (!requireToken(req, res)) return true;
+        if (!isDeviceFresh()) {
+          writeJson(res, 503, { ok: false, error: "no fresh esp32 device" });
+          return true;
+        }
+        const ip = lastDevice!.ip;
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 5000);
+        try {
+          const upstream = await fetch(`http://${ip}/capture`, { signal: ctrl.signal });
+          clearTimeout(t);
+          if (!upstream.ok) {
+            writeJson(res, 502, { ok: false, error: `upstream ${upstream.status}` });
+            return true;
+          }
+          res.statusCode = 200;
+          res.setHeader(
+            "Content-Type",
+            upstream.headers.get("content-type") ?? "image/jpeg",
+          );
+          res.setHeader("Cache-Control", "no-cache");
+          const buf = Buffer.from(await upstream.arrayBuffer());
+          res.end(buf);
+          return true;
+        } catch (err) {
+          clearTimeout(t);
+          writeJson(res, 502, {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return true;
+        }
+      },
+    });
+
+    // GET /api/esp32/stream — MJPEG passthrough proxy. Same mixed-content
+    // story as /capture. multipart/x-mixed-replace is a long-running stream;
+    // we use raw node:http and pipe so we don't buffer the whole thing.
+    api.registerHttpRoute({
+      path: "/api/esp32/stream",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method !== "GET") {
+          writeJson(res, 405, { ok: false, error: "method not allowed" });
+          return true;
+        }
+        if (!requireToken(req, res)) return true;
+        if (!isDeviceFresh()) {
+          writeJson(res, 503, { ok: false, error: "no fresh esp32 device" });
+          return true;
+        }
+        const ip = lastDevice!.ip;
+        const httpMod = await import("node:http");
+        // Aggressive cleanup — ESP32-S3 httpd has ~7 socket slots; each leak
+        // strands one until the half-closed timeout (minutes). Listen on
+        // both req+res close, and idle-timeout the upstream.
+        let cleaned = false;
+        const cleanup = () => {
+          if (cleaned) return;
+          cleaned = true;
+          try {
+            upReq.destroy();
+          } catch {
+            /* noop */
+          }
+        };
+        const upReq = httpMod.request(
+          { hostname: ip, port: 81, path: "/stream", method: "GET" },
+          (upRes) => {
+            res.statusCode = upRes.statusCode ?? 502;
+            for (const [k, v] of Object.entries(upRes.headers)) {
+              if (v !== undefined && k.toLowerCase() !== "connection") {
+                res.setHeader(k, v as string | string[]);
+              }
+            }
+            upRes.pipe(res);
+            upRes.on("error", () => {
+              if (!res.writableEnded) res.end();
+              cleanup();
+            });
+            upRes.on("end", () => {
+              if (!res.writableEnded) res.end();
+              cleanup();
+            });
+          },
+        );
+        upReq.setTimeout(15000, () => cleanup());
+        upReq.on("error", (err) => {
+          if (!res.headersSent) {
+            writeJson(res, 502, { ok: false, error: err.message });
+          } else if (!res.writableEnded) {
+            res.end();
+          }
+          cleanup();
+        });
+        req.on("close", cleanup);
+        req.on("aborted", cleanup);
+        res.on("close", cleanup);
+        res.on("error", cleanup);
+        upReq.end();
+        return true;
+      },
+    });
+
     // POST /api/vision/describe — dashboard "describe scene" button. Body:
     //   { image_b64: string, source_label?: string }
     // Returns { description, took_ms } on success, 503 on agent failure.
@@ -495,6 +714,182 @@ export default definePluginEntry({
           `[${PLUGIN_ID}] vision described ${label ?? "webcam"} in ${dt}ms — "${reply.description}"`,
         );
         writeJson(res, 200, { ok: true, description: reply.description, took_ms: dt });
+        return true;
+      },
+    });
+
+    // POST /api/vlm/chat — free-form streaming multimodal chat. Unlike
+    // /api/vision/describe (one-shot, JSON-formatted, blocking) this endpoint
+    // passes Ollama's NDJSON token stream through to the client for a
+    // typewriter UX. Body:
+    //   {
+    //     model?: string,                  // overrides OPENCLAW_DEMO2_VLM_MODEL
+    //     prompt: string,                  // required, current user turn
+    //     image_b64?: string,              // optional, data: URI prefix ok
+    //     history?: Array<{ role, content, images? }>,
+    //   }
+    // No upstream timeout — VLM generation legitimately takes 1-3min on CPU;
+    // we rely on client disconnect (req close) to abort. Errors before the
+    // stream starts → 502 JSON; errors mid-stream → one final ndjson line
+    // {"done":true,"error":"..."} then end.
+    api.registerHttpRoute({
+      path: "/api/vlm/chat",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method !== "POST") {
+          writeJson(res, 405, { ok: false, error: "method not allowed" });
+          return true;
+        }
+        if (!requireToken(req, res)) return true;
+        // 6MB cap: tolerates one ~4MB base64 image in the current turn plus
+        // a few prior-turn image references (already-stripped raw base64).
+        const body = await readJsonBody(req, 6 * 1024 * 1024);
+        if (!body.ok) {
+          writeJson(res, 400, { ok: false, error: body.error });
+          return true;
+        }
+        const payload = body.value as {
+          model?: unknown;
+          prompt?: unknown;
+          image_b64?: unknown;
+          history?: unknown;
+        };
+        const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+        if (prompt.length === 0) {
+          writeJson(res, 400, { ok: false, error: "prompt required" });
+          return true;
+        }
+        const requestedModel =
+          typeof payload.model === "string" && payload.model.length > 0
+            ? payload.model
+            : vlmChatModel;
+        const rawImage = typeof payload.image_b64 === "string" ? payload.image_b64 : "";
+        const currentImage = rawImage.length > 0 ? stripDataUriPrefix(rawImage) : "";
+        // Map prior history. We accept only {role,content,images?} and discard
+        // anything else; images here are expected raw base64 (caller already
+        // stripped any data: prefix when they originally sent the turn).
+        type HistMsg = { role: "user" | "assistant"; content: string; images?: string[] };
+        const messages: HistMsg[] = [];
+        if (Array.isArray(payload.history)) {
+          for (const item of payload.history) {
+            if (!item || typeof item !== "object") continue;
+            const m = item as { role?: unknown; content?: unknown; images?: unknown };
+            if (m.role !== "user" && m.role !== "assistant") continue;
+            if (typeof m.content !== "string") continue;
+            const out: HistMsg = { role: m.role, content: m.content };
+            if (Array.isArray(m.images)) {
+              const imgs = m.images.filter(
+                (s): s is string => typeof s === "string" && s.length > 0,
+              );
+              if (imgs.length > 0) out.images = imgs;
+            }
+            messages.push(out);
+          }
+        }
+        const currentTurn: HistMsg = { role: "user", content: prompt };
+        if (currentImage.length > 0) currentTurn.images = [currentImage];
+        messages.push(currentTurn);
+
+        // Upstream call. AbortController is wired to req close so a client
+        // disconnect tears down the Ollama stream instead of letting it run
+        // to completion against a dead socket.
+        const ctrl = new AbortController();
+        let cleaned = false;
+        const cleanup = () => {
+          if (cleaned) return;
+          cleaned = true;
+          try {
+            ctrl.abort();
+          } catch {
+            /* noop */
+          }
+        };
+        req.on("close", cleanup);
+        req.on("aborted", cleanup);
+        res.on("close", cleanup);
+        res.on("error", cleanup);
+
+        let upstream: Response;
+        try {
+          upstream = await fetch(`${ollamaBaseUrl}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: requestedModel,
+              messages,
+              stream: true,
+              // Match vision.ts — prevents Ollama from evicting the 10GB VLM
+              // between dashboard interactions during a booth session.
+              keep_alive: "10m",
+            }),
+            signal: ctrl.signal,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn(`[${PLUGIN_ID}] vlm chat: upstream fetch failed (${msg})`);
+          if (!res.headersSent) {
+            writeJson(res, 502, { ok: false, error: msg });
+          } else if (!res.writableEnded) {
+            res.end();
+          }
+          return true;
+        }
+        if (!upstream.ok || !upstream.body) {
+          const status = upstream.status;
+          log.warn(`[${PLUGIN_ID}] vlm chat: ollama HTTP ${status}`);
+          writeJson(res, 502, { ok: false, error: `ollama HTTP ${status}` });
+          return true;
+        }
+
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+
+        const t0 = Date.now();
+        const reader = upstream.body.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value || value.length === 0) continue;
+            if (res.writableEnded) break;
+            // value is a Uint8Array — Ollama already frames responses as
+            // newline-delimited JSON, so passthrough is sufficient.
+            const ok = res.write(Buffer.from(value));
+            if (!ok) {
+              await new Promise<void>((resolve) => res.once("drain", () => resolve()));
+            }
+          }
+          if (!res.writableEnded) res.end();
+          log.info(
+            `[${PLUGIN_ID}] vlm chat ${requestedModel} streamed ${Date.now() - t0}ms ` +
+              `(history=${messages.length - 1}, image=${currentImage.length > 0 ? "yes" : "no"})`,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn(`[${PLUGIN_ID}] vlm chat: stream error (${msg})`);
+          if (!res.writableEnded) {
+            try {
+              res.write(`${JSON.stringify({ done: true, error: msg })}\n`);
+            } catch {
+              /* noop */
+            }
+            try {
+              res.end();
+            } catch {
+              /* noop */
+            }
+          }
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {
+            /* noop */
+          }
+          cleanup();
+        }
         return true;
       },
     });
@@ -564,8 +959,16 @@ export default definePluginEntry({
       },
     });
 
+    api.registerRuntimeLifecycle({
+      id: `${PLUGIN_ID}.mock-cleanup`,
+      description: "Stop synthetic mock frame generator on plugin shutdown.",
+      cleanup: () => {
+        clearInterval(mockInterval);
+      },
+    });
+
     log.info(
-      `[${PLUGIN_ID}] registered: POST /api/sensor/ingest, GET /api/sensor/stream, GET /api/alert/stream, POST /api/actuator, POST /api/vision/describe, GET /api/device-info, GET /api/booth/info, GET / + /static/* (staticDir=${staticDir}, bridgeUrl=${bridgeUrl})`,
+      `[${PLUGIN_ID}] registered: POST /api/sensor/ingest, GET /api/sensor/stream, GET /api/alert/stream, POST /api/actuator, POST /api/vision/describe, POST /api/vlm/chat, GET /api/device-info, GET /api/booth/info, GET+POST /api/dev/mock, GET / + /static/* (staticDir=${staticDir}, bridgeUrl=${bridgeUrl})`,
     );
   },
 });
