@@ -19,12 +19,38 @@ const SEVERITY_LABEL: Record<Alert["severity"], string> = {
   critical: "危險",
 };
 
+const SEVERITY_GLYPH: Record<Alert["severity"], string> = {
+  info: "◯",
+  warn: "⚠",
+  critical: "⛔",
+};
+
 function formatTime(ts: string): string {
   try {
     return new Date(ts).toLocaleTimeString("zh-TW", { hour12: false });
   } catch {
     return ts;
   }
+}
+
+/**
+ * Build a HUD-flavored incident code like `#INC-260527-04A`.
+ * Date portion derives from the alert timestamp (yymmdd); the trailing 3 hex
+ * chars are just the tail of `alert.id` upper-cased — purely visual, no parse.
+ */
+function incidentCode(alert: Alert): string {
+  const tail = alert.id.slice(-3).toUpperCase();
+  let datePart = "------";
+  try {
+    const d = new Date(alert.ts);
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    datePart = `${yy}${mm}${dd}`;
+  } catch {
+    /* keep dashes */
+  }
+  return `#INC-${datePart}-${tail}`;
 }
 
 type Props = { alert: Alert | null };
@@ -38,15 +64,20 @@ export function AlertBanner({ alert }: Props) {
 
   if (!alert || dismissedId === alert.id) return null;
 
+  const isCritical = alert.severity === "critical";
+
   return (
     <div
-      className={`hud-frame relative border bg-ink-900/90 backdrop-blur-[1px] mb-4 md:mb-5 animate-slide-down ${SEVERITY_STYLE[alert.severity]}`}
+      className={`hud-frame relative border bg-ink-900/90 backdrop-blur-[1px] mb-4 md:mb-5 animate-slide-down ${SEVERITY_STYLE[alert.severity]} ${isCritical ? "ribbon-edge" : ""}`}
       role="alert"
     >
       <span className="hud-corner" />
       <div className="flex items-stretch">
         {/* left severity tag block */}
-        <div className="flex-shrink-0 flex flex-col items-center justify-center px-4 py-3 border-r border-current/40">
+        <div className="flex-shrink-0 flex flex-col items-center justify-center px-4 py-3 border-r border-current/40 min-w-[64px]">
+          <span className="text-2xl leading-none mb-1" aria-hidden="true">
+            {SEVERITY_GLYPH[alert.severity]}
+          </span>
           <span className="text-[10px] tracking-hud font-mono font-bold">
             {SEVERITY_TAG[alert.severity]}
           </span>
@@ -57,7 +88,10 @@ export function AlertBanner({ alert }: Props) {
 
         {/* body */}
         <div className="flex-1 px-4 py-3 min-w-0">
-          <div className="flex items-baseline gap-3 mb-1.5">
+          <div className="flex items-baseline gap-3 mb-1.5 flex-wrap">
+            <span className="t-meta font-mono text-accent-info tnum">
+              {incidentCode(alert)}
+            </span>
             <span className="text-[10px] tracking-widest uppercase font-mono text-current/80">
               rule
             </span>
@@ -84,7 +118,12 @@ export function AlertBanner({ alert }: Props) {
           </div>
           {alert.suggested_action && (
             <div className="mt-1.5 text-smoke-400 font-han text-xs md:text-sm">
-              <span className="t-meta mr-2 text-current/70">action</span>
+              <span
+                className="font-mono text-current/80 mr-2"
+                aria-hidden="true"
+              >
+                ▸
+              </span>
               {alert.suggested_action}
             </div>
           )}
@@ -113,6 +152,12 @@ export function AlertBanner({ alert }: Props) {
           ✕
         </button>
       </div>
+      {isCritical && (
+        <div
+          className="absolute inset-x-0 bottom-0 h-px border-energize text-accent-danger"
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }

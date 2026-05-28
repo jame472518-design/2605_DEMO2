@@ -31,7 +31,7 @@ const SEVERITY_TEXT: Record<Alert["severity"], string> = {
 const SEVERITY_TAG: Record<Alert["severity"], string> = {
   info: "INFO",
   warn: "WARN",
-  critical: "CRITICAL",
+  critical: "CRIT",
 };
 const SEVERITY_LABEL: Record<Alert["severity"], string> = {
   info: "提示",
@@ -39,9 +39,9 @@ const SEVERITY_LABEL: Record<Alert["severity"], string> = {
   critical: "危險",
 };
 const SEVERITY_ICON: Record<Alert["severity"], string> = {
-  info: "ⓘ",
+  info: "◯",
   warn: "⚠",
-  critical: "✖",
+  critical: "⛔",
 };
 
 function formatTime(ts: string): string {
@@ -165,13 +165,18 @@ export function AlertPushBanner({ alert }: Props) {
     >
       <div
         onClick={() => setShowing(false)}
-        className={`hud-frame border-2 bg-ink-900/95 backdrop-blur cursor-pointer pointer-events-auto shadow-[0_8px_32px_rgba(0,0,0,0.6)] ${SEVERITY_BORDER[alert.severity]} ${SEVERITY_TEXT[alert.severity]}`}
+        className={`hud-frame relative border-2 bg-ink-900/95 backdrop-blur cursor-pointer pointer-events-auto shadow-[0_8px_32px_rgba(0,0,0,0.6)] ${SEVERITY_BORDER[alert.severity]} ${SEVERITY_TEXT[alert.severity]}`}
       >
         <span className="hud-corner" />
+        {/* entry tick flash — infinite tick strip naturally re-anchors on remount */}
+        <div
+          className="telemetry-strip absolute top-0 inset-x-0"
+          aria-hidden="true"
+        />
         <div className="flex items-stretch">
           {/* Icon + severity */}
           <div className="flex-shrink-0 flex flex-col items-center justify-center px-3 py-3 border-r border-current/40 min-w-[64px]">
-            <span className="text-3xl leading-none mb-1">
+            <span className="text-2xl leading-none mb-1" aria-hidden="true">
               {SEVERITY_ICON[alert.severity]}
             </span>
             <span className="text-[10px] tracking-hud font-mono font-bold">
@@ -208,8 +213,11 @@ export function AlertPushBanner({ alert }: Props) {
             </div>
             {alert.suggested_action && (
               <div className="mt-1.5 text-smoke-300 font-han text-sm">
-                <span className="text-[10px] tracking-widest font-mono text-current/70 mr-2">
-                  action
+                <span
+                  className="font-mono text-current/80 mr-2"
+                  aria-hidden="true"
+                >
+                  ▸
                 </span>
                 {alert.suggested_action}
               </div>
@@ -237,11 +245,18 @@ export function AlertPushBanner({ alert }: Props) {
             ✕
           </button>
         </div>
-        {/* Countdown bar */}
+        {/* Critical sweep above the countdown — visually anchors a live event */}
+        {alert.severity === "critical" && (
+          <div className="h-px border-energize" aria-hidden="true" />
+        )}
+        {/* Countdown bar — gradient fades from severity color into transparent */}
         <div className="h-1 bg-current/15">
           <div
-            className="h-full bg-current"
-            style={{ width: `${progress}%` }}
+            className="h-full"
+            style={{
+              width: `${progress}%`,
+              background: "linear-gradient(to right, currentColor, transparent)",
+            }}
           />
         </div>
       </div>

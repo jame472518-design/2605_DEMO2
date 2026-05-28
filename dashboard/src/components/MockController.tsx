@@ -132,9 +132,9 @@ export function MockController() {
                 onClick={() => onSelect(row.mode)}
                 disabled={busy}
                 aria-pressed={selected}
-                className={`w-full flex items-center gap-2 px-3 py-1.5 font-mono text-xs tracking-widest border-l-2 ${
+                className={`relative w-full flex items-center gap-2 px-3 py-1.5 font-mono text-xs tracking-widest border-l-2 ${
                   selected ? "border-l-current " + labelClass : "border-l-transparent text-smoke-400"
-                } hover:bg-ink-800/60 hover:text-smoke-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed`}
+                } hover:bg-ink-800/60 hover:text-smoke-100 hover:border-l-2 hover:border-l-accent-photon transition-colors disabled:opacity-60 disabled:cursor-not-allowed`}
               >
                 <span
                   className={`inline-block w-3 text-center leading-none ${
@@ -146,10 +146,12 @@ export function MockController() {
                 </span>
                 <span className={selected ? labelClass : ""}>{row.label}</span>
                 {showEmitting && (
-                  <span className="ml-auto italic font-mono text-[9px] tracking-widest text-accent-warn">
-                    (emitting)
+                  <span className="ml-auto inline-flex items-center gap-1.5">
+                    <span className="live-dot" />
+                    <span className="t-meta text-accent-photon">LIVE</span>
                   </span>
                 )}
+                {selected && <div className="absolute inset-x-0 bottom-0 h-px border-energize" />}
               </button>
             );
           })}

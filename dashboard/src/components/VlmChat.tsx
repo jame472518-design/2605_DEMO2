@@ -634,6 +634,7 @@ function ImageDock({
               : "border-ink-600 hover:border-ink-500 bg-ink-950/40"
           }`}
         >
+          <div className="telemetry-strip absolute top-0 inset-x-0" />
           <div className="scanline-overlay" />
           <div className="text-center px-6 pointer-events-none">
             <p className="text-[10px] tracking-hud text-accent-info font-mono mb-2">
@@ -798,11 +799,14 @@ function EmptyState({
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const isStreaming = !!message.streaming;
   const accentBorder = isUser
     ? "border-l-accent-strix"
     : message.error
       ? "border-l-accent-danger"
-      : "border-l-accent-ok";
+      : isStreaming
+        ? "border-l-accent-photon"
+        : "border-l-accent-ok";
   const align = isUser ? "ml-auto" : "mr-auto";
   const roleLabel = isUser ? "USER" : "VLM";
 
@@ -826,7 +830,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </span>
         )}
         {message.stats && (
-          <span className="text-[10px] tracking-widest font-mono text-smoke-500/70 tnum">
+          <span className="text-[10px] tracking-widest font-mono text-accent-photon tnum">
             {(message.stats.tookMs / 1000).toFixed(1)}s
             {message.stats.tokensPerSec > 0 && (
               <>
@@ -838,8 +842,11 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         )}
       </div>
       <div
-        className={`border-l-2 ${accentBorder} bg-ink-800/70 border border-ink-700 px-3 py-2`}
+        className={`relative border-l-2 ${accentBorder} bg-ink-800/70 border border-ink-700 px-3 py-2`}
       >
+        {isStreaming && (
+          <div className="absolute left-0 top-0 bottom-0 w-px border-energize text-accent-photon pointer-events-none" />
+        )}
         {message.imageDataUrl && (
           <img
             src={message.imageDataUrl}

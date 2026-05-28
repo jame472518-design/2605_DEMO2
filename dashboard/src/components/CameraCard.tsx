@@ -228,7 +228,7 @@ export function CameraCard() {
         .filter((d) => d.kind === "videoinput")
         .map((d, i) => ({
           deviceId: d.deviceId,
-          label: d.label || `相機 ${i + 1}`,
+          label: d.label || `LENS-${String(i + 1).padStart(2, "0")}`,
         }));
       setWebcams(cams);
       setDiscoveryError(null);
@@ -257,7 +257,7 @@ export function CameraCard() {
   const active: SourceMeta[] = useMemo(() => {
     const out: SourceMeta[] = [];
     if (enabled.has(SOURCE_ESP32)) {
-      out.push({ id: SOURCE_ESP32, type: "esp32", label: "ESP32" });
+      out.push({ id: SOURCE_ESP32, type: "esp32", label: "IRIS-01" });
     }
     if (mobile) {
       // Mobile: prefer facingMode-based synthetic chips; ignore enumerated
@@ -312,8 +312,10 @@ export function CameraCard() {
       />
 
       {count === 0 ? (
-        <div className="aspect-video bg-ink-950 border border-ink-700 mt-3 flex items-center justify-center">
+        <div className="aspect-video bg-ink-950 border border-ink-700 mt-3 flex flex-col items-center justify-center relative">
+          <span className="t-meta text-smoke-400 mb-1">STANDBY</span>
           <span className="t-meta text-smoke-500">no feed selected</span>
+          <div className="telemetry-strip absolute bottom-0 left-0 right-0" />
         </div>
       ) : (
         <div className={`mt-3 ${gridClass}`}>
@@ -359,9 +361,9 @@ function SourceToolbar({
       <Chip
         active={enabled.has(SOURCE_ESP32)}
         onClick={() => onToggle(SOURCE_ESP32)}
-        title="ESP32-S3-CAM via WiFi"
+        title="IRIS-01 · ESP32-S3-CAM 邊緣鏡頭 (WiFi)"
       >
-        ESP32
+        IRIS-01
       </Chip>
       {mobile ? (
         <>
@@ -455,50 +457,142 @@ function truncate(s: string, n: number): string {
 // Shared HUD overlay
 // ---------------------------------------------------------------------------
 
+function formatRecTimer(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `T+${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+/**
+ * Self-contained REC timer. Owns its own `recStartTs` ref + 1s `setInterval`
+ * so it doesn't push re-renders up to the parent feed component (Esp32View /
+ * WebcamFeed) every second — only this leaf re-renders, the MJPEG <img> and
+ * the <video> stay untouched.
+ */
+function RecBadge() {
+  const startRef = useRef<number>(Date.now());
+  const [elapsedMs, setElapsedMs] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setElapsedMs(Date.now() - startRef.current);
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="flex items-center gap-1.5 text-[10px] tracking-widest text-accent-danger font-mono">
+      <span className="w-1.5 h-1.5 bg-accent-danger rounded-full animate-rec-blink" />
+      REC
+      <span className="tnum">{formatRecTimer(elapsedMs)}</span>
+    </span>
+  );
+}
+
+/**
+ * Fake-but-believable bitrate / fps readout. Numbers jitter ±~7% every 1.2s
+ * for tactical motion. Lives in its own component for the same reason as
+ * RecBadge — keep the re-render scope tight so the MJPEG <img> never blinks.
+ */
+function BitrateIndicator() {
+  const [bitrate, setBitrate] = useState(480);
+  const [fps, setFps] = useState(24);
+  useEffect(() => {
+    const id = setInterval(() => {
+      // ±34 around 480 (~7%), ±1 around 24
+      setBitrate(480 + Math.round((Math.random() * 2 - 1) * 34));
+      setFps(24 + Math.round(Math.random() * 2 - 1));
+    }, 1200);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="text-smoke-400 font-mono text-[10px] tracking-widest tnum px-1.5 py-0.5 bg-ink-950/60">
+      ~ {bitrate} kbps · {fps} fps
+    </span>
+  );
+}
+
+type HudTone = "photon" | "info";
+
 function HudOverlay({
   label,
   meta,
   rec,
+  tone = "info",
+  showBitrate,
 }: {
   label: string;
   meta?: string;
   rec?: boolean;
+  tone?: HudTone;
+  showBitrate?: boolean;
 }) {
+  // Tailwind classes pinned per tone so corner brackets (currentColor on SVG)
+  // and the label chip match the source family — photon = IRIS-01 (edge eye),
+  // info = LENS/webcam (local glass).
+  const toneClasses =
+    tone === "photon"
+      ? {
+          svg: "text-accent-photon",
+          labelBg: "bg-accent-photon/15",
+          labelText: "text-accent-photon",
+        }
+      : {
+          svg: "text-accent-info",
+          labelBg: "bg-accent-info/15",
+          labelText: "text-accent-info",
+        };
+
   return (
     <>
       <svg
-        className="absolute inset-0 w-full h-full pointer-events-none"
+        className={`absolute inset-0 w-full h-full pointer-events-none ${toneClasses.svg}`}
         preserveAspectRatio="none"
         viewBox="0 0 100 100"
       >
-        <path d="M 0 6 L 0 0 L 6 0" stroke="#06b6d4" strokeWidth="0.4" fill="none" />
-        <path d="M 94 0 L 100 0 L 100 6" stroke="#06b6d4" strokeWidth="0.4" fill="none" />
-        <path d="M 0 94 L 0 100 L 6 100" stroke="#06b6d4" strokeWidth="0.4" fill="none" />
-        <path d="M 94 100 L 100 100 L 100 94" stroke="#06b6d4" strokeWidth="0.4" fill="none" />
-        <g opacity="0.4">
-          <line x1="50" y1="44" x2="50" y2="49" stroke="#06b6d4" strokeWidth="0.3" />
-          <line x1="50" y1="51" x2="50" y2="56" stroke="#06b6d4" strokeWidth="0.3" />
-          <line x1="44" y1="50" x2="49" y2="50" stroke="#06b6d4" strokeWidth="0.3" />
-          <line x1="51" y1="50" x2="56" y2="50" stroke="#06b6d4" strokeWidth="0.3" />
-          <circle cx="50" cy="50" r="0.6" fill="#06b6d4" />
+        {/* Corner brackets — longer (10 units) and a touch thicker (0.6).
+            stroke=currentColor so the host element's text-* class colors them. */}
+        <path d="M 0 10 L 0 0 L 10 0" stroke="currentColor" strokeWidth="0.6" fill="none" />
+        <path d="M 90 0 L 100 0 L 100 10" stroke="currentColor" strokeWidth="0.6" fill="none" />
+        <path d="M 0 90 L 0 100 L 10 100" stroke="currentColor" strokeWidth="0.6" fill="none" />
+        <path d="M 90 100 L 100 100 L 100 90" stroke="currentColor" strokeWidth="0.6" fill="none" />
+        {/* Center reticule: dashed ring + 4 cardinal tick marks, no fill dot. */}
+        <g opacity="0.6">
+          <circle
+            cx="50"
+            cy="50"
+            r="6"
+            stroke="currentColor"
+            strokeWidth="0.6"
+            strokeDasharray="2 3"
+            fill="none"
+          />
+          {/* N / S / W / E ticks, ~6 units long, sitting just inside the ring */}
+          <line x1="50" y1="44.5" x2="50" y2="46.5" stroke="currentColor" strokeWidth="0.4" />
+          <line x1="50" y1="53.5" x2="50" y2="55.5" stroke="currentColor" strokeWidth="0.4" />
+          <line x1="44.5" y1="50" x2="46.5" y2="50" stroke="currentColor" strokeWidth="0.4" />
+          <line x1="53.5" y1="50" x2="55.5" y2="50" stroke="currentColor" strokeWidth="0.4" />
         </g>
       </svg>
       <div className="scanline-overlay" />
       <div className="camera-vignette" />
       <div className="absolute top-2 left-2 flex items-center gap-2 z-10">
-        {rec && (
-          <span className="flex items-center gap-1.5 text-[10px] tracking-widest text-accent-danger font-mono">
-            <span className="w-1.5 h-1.5 bg-accent-danger rounded-full animate-rec-blink" />
-            REC
-          </span>
-        )}
-        <span className="text-[10px] tracking-widest text-smoke-100/70 font-mono px-1.5 py-0.5 bg-ink-950/60">
+        {rec && <RecBadge />}
+        <span
+          className={`text-[10px] tracking-widest font-mono px-1.5 py-0.5 ${toneClasses.labelBg} ${toneClasses.labelText}`}
+        >
           {label}
         </span>
       </div>
-      {meta && (
-        <div className="absolute bottom-2 right-2 text-[9px] tracking-widest text-smoke-100/60 font-mono px-1.5 py-0.5 bg-ink-950/60 z-10">
-          {meta}
+      {(meta || showBitrate) && (
+        <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1.5">
+          {meta && (
+            <span className="text-[9px] tracking-widest text-smoke-100/60 font-mono px-1.5 py-0.5 bg-ink-950/60">
+              {meta}
+            </span>
+          )}
+          {showBitrate && <BitrateIndicator />}
         </div>
       )}
     </>
@@ -616,7 +710,7 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
         fr.onerror = () => reject(new Error("FileReader failed"));
         fr.readAsDataURL(blob);
       });
-      const reply = await describeImage(dataUrl, "ESP32-S3-CAM");
+      const reply = await describeImage(dataUrl, "IRIS-01");
       setVision({ kind: "ok", description: reply.description, took_ms: reply.took_ms });
     } catch (e) {
       setVision({
@@ -641,7 +735,7 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
 
   const streaming = info?.camera_stream_url && !imageError && !paused;
   const hudLabel = showLabel
-    ? `ESP32 / ${info?.device_ip ?? "—"}`
+    ? `IRIS-01 / ${info?.device_ip ?? "—"}`
     : `IRIS-01 / ${info?.device_ip ?? "OFFLINE"}`;
 
   return (
@@ -653,11 +747,17 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
               key={streamKey}
               ref={imgRef}
               src={streamSrc}
-              alt="ESP32 camera live stream"
+              alt="IRIS-01 邊緣鏡頭即時影像"
               className="w-full h-full object-cover"
               onError={() => setImageError(true)}
             />
-            <HudOverlay label={hudLabel} meta="MJPEG / 640×480" rec />
+            <HudOverlay
+              label={hudLabel}
+              meta="MJPEG / 640×480"
+              rec
+              tone="photon"
+              showBitrate={Boolean(streaming)}
+            />
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
               <button
                 type="button"
@@ -692,12 +792,12 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
           </>
         ) : paused ? (
           <>
-            <HudOverlay label={hudLabel} />
+            <HudOverlay label={hudLabel} tone="photon" />
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center px-6 max-w-md">
                 <p className="t-meta text-accent-warn mb-1">stream paused</p>
                 <p className="text-xs text-smoke-400 font-han mb-3 leading-relaxed">
-                  已釋出 ESP32 :81/stream 連線。手機(或任何其他裝置)
+                  已釋出 IRIS-01 連線。手機(或任何其他裝置)
                   現在可以掃 QR 接管畫面。要拿回來按下面 ▶ RESUME。
                 </p>
                 <button
@@ -712,14 +812,14 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
           </>
         ) : (
           <>
-            <HudOverlay label={hudLabel} />
+            <HudOverlay label={hudLabel} tone="photon" />
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center px-6 max-w-md">
                 <p className="t-meta text-smoke-500 mb-1">no signal</p>
                 <p className="text-xs text-smoke-400 font-mono tracking-wide mb-3">
                   {info?.device_ip
                     ? "影像載入失敗,可能是上一條 MJPEG 連線還沒釋放"
-                    : "等待 ESP32 連線到 plugin"}
+                    : "等待 IRIS-01 連線"}
                 </p>
                 <button
                   type="button"
@@ -958,7 +1058,7 @@ function WebcamFeed({
               muted
               className="w-full h-full object-cover"
             />
-            <HudOverlay label={hudLabel} meta="getUserMedia" rec />
+            <HudOverlay label={hudLabel} meta="getUserMedia" rec tone="info" />
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
               <button
                 type="button"
@@ -984,7 +1084,7 @@ function WebcamFeed({
           </>
         ) : state === "paused" ? (
           <>
-            <HudOverlay label={hudLabel} />
+            <HudOverlay label={hudLabel} tone="info" />
             <div className="absolute inset-0 flex items-center justify-center">
               <button
                 type="button"
@@ -997,7 +1097,7 @@ function WebcamFeed({
           </>
         ) : (
           <>
-            <HudOverlay label={hudLabel} />
+            <HudOverlay label={hudLabel} tone="info" />
             <div className="absolute inset-0 flex items-center justify-center">
               {state === "checking" ? (
                 <span className="t-meta text-smoke-500 animate-pulse-dot">

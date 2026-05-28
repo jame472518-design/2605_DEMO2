@@ -1,0 +1,1014 @@
+<!doctype html>
+<html lang="zh-Hant" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Strix Sensor Station · 截圖預覽</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            ink: { 950: "#080a0d", 925: "#0a0c10", 900: "#0b0d10", 800: "#13161b", 700: "#1c2026", 600: "#252a32", 500: "#3a4150" },
+            smoke: { 50: "#f5f6f8", 100: "#e5e7eb", 200: "#d1d5db", 400: "#9ca3af", 500: "#6b7280", 600: "#4b5563" },
+            accent: { warn: "#facc15", danger: "#ef4444", ok: "#10b981", info: "#06b6d4", photon: "#00d9ff", ember: "#fb923c", strix: "#ED1C24" },
+          },
+          fontFamily: {
+            sans: ["JetBrains Mono", "Noto Sans TC", "ui-monospace", "monospace"],
+            mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+            han: ["Noto Sans TC", "ui-sans-serif", "sans-serif"],
+          },
+          letterSpacing: { widest: "0.25em", hud: "0.32em" },
+          animation: {
+            "pulse-danger": "pulseDanger 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+            "pulse-dot": "pulseDot 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+            scanline: "scanline 5.5s linear infinite",
+            "rec-blink": "recBlink 1.4s steps(2, end) infinite",
+            breathe: "breathe 3.8s cubic-bezier(0.45, 0, 0.55, 1) infinite",
+            "telemetry-flow": "telemetryFlow 8s linear infinite",
+            "border-sweep": "borderSweep 2.4s linear infinite",
+          },
+          keyframes: {
+            pulseDanger: { "0%, 100%": { boxShadow: "0 0 0 0 rgba(239, 68, 68, 0.55)" }, "50%": { boxShadow: "0 0 0 8px rgba(239, 68, 68, 0)" } },
+            pulseDot: { "0%, 100%": { opacity: "1" }, "50%": { opacity: "0.35" } },
+            scanline: { "0%": { transform: "translateY(-10%)" }, "100%": { transform: "translateY(110%)" } },
+            recBlink: { "0%": { opacity: "1" }, "100%": { opacity: "0.25" } },
+            breathe: { "0%, 100%": { opacity: "0.55" }, "50%": { opacity: "1" } },
+            telemetryFlow: { from: { backgroundPositionX: "0" }, to: { backgroundPositionX: "32px" } },
+            borderSweep: { "0%": { backgroundPosition: "-200% 0" }, "100%": { backgroundPosition: "200% 0" } },
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    html, body { margin: 0; padding: 0; background: #0a0c10; color: #e5e7eb;
+      font-family: "JetBrains Mono", "Noto Sans TC", monospace;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      background-image:
+        radial-gradient(800px 600px at -10% -10%, rgba(0, 217, 255, 0.05), transparent 60%),
+        radial-gradient(800px 600px at 110% -10%, rgba(237, 28, 36, 0.04), transparent 60%),
+        radial-gradient(700px 500px at 110% 110%, rgba(251, 146, 60, 0.04), transparent 60%),
+        radial-gradient(700px 500px at -10% 110%, rgba(6, 182, 212, 0.04), transparent 60%),
+        linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+      background-attachment: fixed, fixed, fixed, fixed, fixed, fixed;
+    }
+    body::after {
+      content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1;
+      opacity: 0.05; mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>");
+    }
+    section { position: relative; z-index: 2; }
+    .font-han { font-family: "Noto Sans TC", sans-serif; }
+    .t-meta { font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase; color: #6b7280; font-weight: 500; }
+    .tnum { font-variant-numeric: tabular-nums; }
+
+    /* HUD frame corner brackets */
+    .hud-frame { position: relative; }
+    .hud-frame::before, .hud-frame::after, .hud-frame > .hud-corner::before, .hud-frame > .hud-corner::after {
+      content: ""; position: absolute; width: 12px; height: 12px;
+      border: 1px solid currentColor; pointer-events: none; opacity: 0.55;
+    }
+    .hud-frame::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+    .hud-frame::after  { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
+    .hud-frame > .hud-corner::before { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
+    .hud-frame > .hud-corner::after  { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+    .telemetry-strip {
+      height: 1px;
+      background-image: repeating-linear-gradient(90deg, rgba(0, 217, 255, 0.55) 0 6px, transparent 6px 32px);
+      background-size: 32px 1px;
+      animation: telemetryFlow 8s linear infinite;
+    }
+    .border-energize {
+      background: linear-gradient(90deg, transparent 35%, currentColor 50%, transparent 65%) no-repeat;
+      background-size: 200% 100%;
+      animation: borderSweep 2.4s linear infinite;
+    }
+    .breathe-info {
+      box-shadow: 0 0 18px rgba(6, 182, 212, 0.18), inset 0 0 24px rgba(6, 182, 212, 0.06);
+      animation: breathe 3.8s ease-in-out infinite;
+    }
+    .breathe-warn {
+      box-shadow: 0 0 18px rgba(251, 146, 60, 0.22), inset 0 0 24px rgba(251, 146, 60, 0.08);
+      animation: breathe 3.2s ease-in-out infinite;
+    }
+    .live-dot {
+      display: inline-block; width: 6px; height: 6px; background: #00d9ff;
+      box-shadow: 0 0 8px rgba(0, 217, 255, 0.7);
+      animation: breathe 1.6s ease-in-out infinite;
+    }
+    .scanline-overlay { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+    .scanline-overlay::after {
+      content: ""; position: absolute; left: 0; right: 0; height: 22px;
+      background: linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.06), transparent);
+      animation: scanline 5.5s linear infinite;
+    }
+    .camera-vignette {
+      position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse 80% 60% at center, transparent 40%, rgba(0,0,0,0.5) 100%);
+    }
+    .ribbon-edge::before, .ribbon-edge::after {
+      content: ""; position: absolute; top: 50%; width: 100vw; height: 1px;
+      background: linear-gradient(to right, currentColor, transparent);
+      opacity: 0.35; pointer-events: none;
+    }
+    .ribbon-edge::before { right: 100%; background: linear-gradient(to left, currentColor, transparent); }
+    .ribbon-edge::after  { left: 100%; }
+
+    .shot-label {
+      position: absolute; top: 16px; left: 16px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase;
+      color: rgba(0, 217, 255, 0.8);
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(8px);
+      padding: 6px 10px;
+      border: 1px solid rgba(0, 217, 255, 0.3);
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    /* sparkline visual */
+    .spark-poly { fill: none; stroke-width: 1.25; stroke-linejoin: round; }
+  </style>
+</head>
+
+<body class="bg-ink-925 text-smoke-100">
+
+<!-- Always-on telemetry strip at very top -->
+<div class="telemetry-strip fixed top-0 inset-x-0 z-[5]"></div>
+
+
+<!-- ===================================================================== -->
+<!-- SHOT 1 · Dashboard normal state (motion info alert + AGENT LOG)        -->
+<!-- ===================================================================== -->
+<section class="px-4 py-4 md:px-7 md:py-6 max-w-[1480px] mx-auto">
+  <span class="shot-label">SHOT 01 · DASHBOARD · LIVE</span>
+
+  <!-- Header -->
+  <header class="mb-4 md:mb-5 border border-ink-600 bg-ink-900/70 backdrop-blur-[1px] hud-frame relative">
+    <span class="hud-corner"></span>
+    <div class="flex flex-wrap items-stretch">
+      <div class="flex items-center gap-3 px-4 py-3 border-r border-ink-600 min-w-0">
+        <span class="text-accent-strix font-bold text-xl leading-none animate-breathe">◢◣</span>
+        <div class="leading-tight">
+          <div class="font-mono text-[15px] md:text-base font-bold tracking-hud text-smoke-50">SENSOR STATION</div>
+          <div class="t-meta">
+            <span style="color: rgba(0,217,255,0.8);">SYS:OK</span>
+            <span class="mx-1.5 text-smoke-600">·</span>
+            <span>NET:LAN</span>
+            <span class="mx-1.5 text-smoke-600">·</span>
+            <span class="text-accent-ok">MODE:LIVE</span>
+            <span class="mx-1.5 text-smoke-600">·</span>
+            <span>STRIX HALO</span>
+          </div>
+        </div>
+      </div>
+      <div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 bg-accent-ok"></span>
+          <span class="t-meta">gateway</span>
+          <span class="font-mono text-xs text-smoke-200 tracking-widest tnum">18790</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="live-dot"></span>
+          <span class="t-meta">ingest</span>
+          <span class="font-mono text-xs text-accent-photon tracking-widest tnum">live</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 bg-accent-ok"></span>
+          <span class="t-meta">judge</span>
+          <span class="font-mono text-xs text-smoke-200 tracking-widest tnum">qwen2:1.5b</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 bg-accent-ok"></span>
+          <span class="t-meta">vision</span>
+          <span class="font-mono text-xs text-smoke-200 tracking-widest tnum">qwen2.5vl:3b</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 bg-accent-ok"></span>
+          <span class="t-meta">seq</span>
+          <span class="font-mono text-xs text-smoke-200 tracking-widest tnum">90247</span>
+        </div>
+        <a href="#" class="ml-auto inline-flex items-center gap-2 border border-accent-photon/70 text-accent-photon hover:bg-accent-photon/10 px-2.5 py-1.5 font-mono text-[11px] tracking-hud transition-colors"
+           style="box-shadow: 0 0 12px rgba(0,217,255,0.18);">
+          <span class="w-1.5 h-1.5 bg-accent-photon animate-breathe"></span>
+          [VLM]
+        </a>
+      </div>
+      <div class="px-4 py-3 border-l border-ink-600 flex flex-col items-end justify-center">
+        <span class="t-meta">utc+8</span>
+        <span class="font-mono text-base md:text-lg font-bold tracking-widest text-smoke-100 tnum">
+          14:32:18<span class="ml-1 text-[10px] text-accent-photon/60 tnum align-baseline">.427</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Alert Banner (info: motion_detected) -->
+  <div class="hud-frame relative border bg-ink-900/90 backdrop-blur-[1px] mb-4 md:mb-5 border-accent-info/80 text-accent-info">
+    <span class="hud-corner"></span>
+    <div class="flex items-stretch">
+      <div class="flex-shrink-0 flex flex-col items-center justify-center px-3 py-3 border-r border-current/40 min-w-[64px]">
+        <span class="text-2xl leading-none mb-1">◯</span>
+        <span class="text-[10px] tracking-hud font-mono font-bold">INFO</span>
+        <span class="text-[10px] tracking-widest text-current/70 mt-0.5">提示</span>
+      </div>
+      <div class="flex-1 px-4 py-3 min-w-0">
+        <div class="flex items-baseline gap-3 mb-1.5">
+          <span class="t-meta font-mono text-accent-info tnum">#INC-260527-A47</span>
+          <span class="t-meta">rule</span>
+          <span class="font-mono text-sm text-current font-bold tracking-wide">MOTION_DETECTED</span>
+          <span class="ml-auto text-[10px] tracking-widest font-mono text-current/60 tnum">14:31:42</span>
+        </div>
+        <div class="font-han text-sm md:text-[15px] leading-relaxed text-smoke-100">
+          偵測到人員在攝影機前方移動,距離約 47 公分,已自動觸發鏡頭擷取
+        </div>
+        <div class="mt-1.5 font-han text-smoke-400 text-xs md:text-sm">
+          <span class="t-meta mr-2 text-current/70">▸</span>
+          確認區域人員,如為展示動線屬正常
+        </div>
+        <div class="mt-2 pt-2 border-t border-current/20 text-smoke-300 font-han text-xs md:text-sm">
+          <span class="text-[10px] tracking-widest font-mono text-accent-info mr-2">👁 SCENE</span>
+          桌前有一位戴眼鏡的男性正在比劃,身後是顯示螢幕
+          <span class="ml-2 text-[10px] tracking-widest font-mono text-smoke-500/70">(18.4s)</span>
+        </div>
+      </div>
+      <button class="flex-shrink-0 w-10 flex items-center justify-center text-current/60 border-l border-current/40">✕</button>
+    </div>
+  </div>
+
+  <!-- Camera card -->
+  <section class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 mb-3 md:mb-4">
+    <span class="hud-corner"></span>
+    <div class="flex flex-wrap items-baseline justify-between gap-3 mb-3">
+      <div class="flex items-baseline gap-3">
+        <span class="t-meta text-smoke-400">live feed</span>
+        <span class="text-[10px] tracking-widest text-accent-info">◉ 1 source</span>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <button class="inline-flex items-center gap-2 border border-accent-photon text-accent-photon bg-accent-photon/10 px-2.5 py-1.5 font-mono text-[11px] tracking-widest uppercase">IRIS-01</button>
+      <button class="inline-flex items-center gap-2 border border-ink-600 text-smoke-400 px-2.5 py-1.5 font-mono text-[11px] tracking-widest uppercase">FRONT</button>
+      <button class="inline-flex items-center gap-2 border border-ink-600 text-smoke-400 px-2.5 py-1.5 font-mono text-[11px] tracking-widest uppercase">REAR</button>
+      <button class="inline-flex items-center gap-1.5 border border-ink-600 text-smoke-400 px-2.5 py-1.5 font-mono text-[11px] tracking-widest uppercase">↻ RESCAN</button>
+    </div>
+    <div class="relative">
+      <div class="aspect-video bg-ink-950 overflow-hidden relative border border-ink-700 text-accent-photon">
+        <img src="https://picsum.photos/seed/strix-cam-room/1280/720" alt="" class="w-full h-full object-cover"/>
+        <!-- Corner brackets -->
+        <svg viewBox="0 0 100 56" preserveAspectRatio="none" class="absolute inset-0 w-full h-full text-accent-photon pointer-events-none">
+          <path d="M 0 10 L 0 0 L 10 0" stroke="currentColor" stroke-width="0.6" fill="none"/>
+          <path d="M 90 0 L 100 0 L 100 10" stroke="currentColor" stroke-width="0.6" fill="none"/>
+          <path d="M 100 46 L 100 56 L 90 56" stroke="currentColor" stroke-width="0.6" fill="none"/>
+          <path d="M 10 56 L 0 56 L 0 46" stroke="currentColor" stroke-width="0.6" fill="none"/>
+          <!-- Center reticle -->
+          <circle cx="50" cy="28" r="6" stroke="currentColor" stroke-width="0.6" stroke-dasharray="2 3" fill="none" opacity="0.6"/>
+          <line x1="50" y1="20" x2="50" y2="22.5" stroke="currentColor" stroke-width="0.4"/>
+          <line x1="50" y1="33.5" x2="50" y2="36" stroke="currentColor" stroke-width="0.4"/>
+          <line x1="42" y1="28" x2="44.5" y2="28" stroke="currentColor" stroke-width="0.4"/>
+          <line x1="55.5" y1="28" x2="58" y2="28" stroke="currentColor" stroke-width="0.4"/>
+        </svg>
+        <div class="scanline-overlay"></div>
+        <div class="camera-vignette"></div>
+        <!-- REC + T+timer (top-left) -->
+        <div class="absolute top-2 left-2 z-10 inline-flex items-center gap-1.5 bg-ink-950/70 px-2 py-1 text-[10px] tracking-widest font-mono text-accent-danger">
+          <span class="w-1.5 h-1.5 bg-accent-danger animate-rec-blink"></span>
+          <span>REC</span>
+          <span class="ml-1 tnum">T+00:14:27</span>
+        </div>
+        <!-- Label bottom-left -->
+        <div class="absolute bottom-2 left-2 z-10 bg-accent-photon/15 text-accent-photon font-mono text-[10px] tracking-widest px-2 py-1">IRIS-01 / 192.168.1.47</div>
+        <!-- Meta bottom-right -->
+        <div class="absolute bottom-2 right-2 z-10 inline-flex items-center gap-3">
+          <span class="bg-ink-950/70 text-smoke-300 font-mono text-[10px] tracking-widest px-2 py-1">MJPEG / 640×480</span>
+          <span class="text-smoke-400 font-mono text-[10px] tracking-widest tnum">~ 487 kbps · 24 fps</span>
+        </div>
+        <!-- SCAN / PAUSE buttons top-right -->
+        <div class="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+          <button class="border border-accent-info/70 bg-ink-950/70 text-accent-info px-2 py-1 text-[10px] tracking-widest font-mono">👁 SCAN</button>
+          <button class="border border-accent-warn/70 bg-ink-950/70 text-accent-warn px-2 py-1 text-[10px] tracking-widest font-mono">⏸ PAUSE</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sensor cards (5) -->
+  <main class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-4 mb-4 md:mb-5">
+
+    <!-- 01 TEMP — NOMINAL -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 text-accent-info/40">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="t-meta">01</div>
+          <div class="t-meta text-smoke-400 mt-0.5">TEMP °C</div>
+        </div>
+        <div class="text-right">
+          <div class="font-mono text-[10px] tracking-widest text-accent-info tnum">▼ -0.2 / 10s</div>
+        </div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2">
+        <span class="text-[2.6rem] font-bold text-smoke-50 leading-none tnum">28.4</span>
+        <span class="text-smoke-500 text-xs ml-1">°C</span>
+      </div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-info/50">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="M0,18 L10,16 L20,17 L30,15 L40,14 L50,13 L60,15 L70,14 L80,13 L90,12 L100,11 L100,28 L0,28 Z" fill="url(#g1)"/>
+        <polyline class="spark-poly" stroke="currentColor" points="0,18 10,16 20,17 30,15 40,14 50,13 60,15 70,14 80,13 90,12 100,11"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">HEAT_SUSTAINED &gt;32 60s</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-smoke-400">
+          <span class="w-1 h-1 bg-smoke-500"></span> NOMINAL
+        </span>
+      </div>
+    </div>
+
+    <!-- 02 HUMID — NOMINAL -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 text-accent-info/40">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="t-meta">02</div>
+          <div class="t-meta text-smoke-400 mt-0.5">HUMID %</div>
+        </div>
+        <div class="text-right">
+          <div class="font-mono text-[10px] tracking-widest text-accent-warn tnum">▲ +1 / 10s</div>
+        </div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2">
+        <span class="text-[2.6rem] font-bold text-smoke-50 leading-none tnum">52</span>
+        <span class="text-smoke-500 text-xs ml-1">%RH</span>
+      </div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-info/40">
+        <polyline class="spark-poly" stroke="currentColor" points="0,15 10,14 20,16 30,15 40,13 50,14 60,12 70,13 80,11 90,10 100,9"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">—</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-smoke-400">
+          <span class="w-1 h-1 bg-smoke-500"></span> NOMINAL
+        </span>
+      </div>
+    </div>
+
+    <!-- 03 MOTION — TRIP (pulses red) -->
+    <div class="hud-frame relative border border-accent-danger/80 bg-ink-900/80 p-4 animate-pulse-danger text-accent-danger">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="t-meta">03</div>
+          <div class="t-meta text-smoke-400 mt-0.5">MOTION</div>
+        </div>
+        <div class="text-right">
+          <div class="font-mono text-[10px] tracking-widest text-accent-warn tnum">▲ +1 / 10s</div>
+        </div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2">
+        <span class="text-[2.2rem] font-bold text-accent-danger leading-none">ACTIVE</span>
+      </div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-danger/60">
+        <polyline class="spark-poly" stroke="currentColor" points="0,24 10,24 20,24 30,24 40,24 50,24 60,4 70,4 80,4 90,4 100,4"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">MOTION_DETECTED + vision</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-accent-danger">
+          <span class="w-1 h-1 bg-accent-danger animate-pulse-dot"></span> TRIP
+        </span>
+      </div>
+    </div>
+
+    <!-- 04 AUDIO RMS — NOMINAL -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 text-accent-info/40">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="t-meta">04</div>
+          <div class="t-meta text-smoke-400 mt-0.5">AUDIO RMS</div>
+        </div>
+        <div class="text-right">
+          <div class="font-mono text-[10px] tracking-widest text-smoke-500">→ —— / 10s</div>
+        </div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2">
+        <span class="text-[2.6rem] font-bold text-smoke-50 leading-none tnum">5,234</span>
+        <span class="text-smoke-500 text-xs ml-1">rms</span>
+      </div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-info/40">
+        <polyline class="spark-poly" stroke="currentColor" points="0,20 10,18 20,22 30,19 40,21 50,17 60,20 70,18 80,19 90,21 100,19"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">NOISE_EVENT &gt;50k 1s + vision</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-smoke-400">
+          <span class="w-1 h-1 bg-smoke-500"></span> NOMINAL
+        </span>
+      </div>
+    </div>
+
+    <!-- 05 DIST — WATCH (breathe-info) -->
+    <div class="hud-frame relative border border-accent-info/60 bg-ink-900/80 p-4 breathe-info text-accent-info">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="t-meta">05</div>
+          <div class="t-meta text-smoke-400 mt-0.5">DIST cm</div>
+        </div>
+        <div class="text-right">
+          <div class="font-mono text-[10px] tracking-widest text-accent-info tnum">▼ -8.0 / 10s</div>
+        </div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2">
+        <span class="text-[2.6rem] font-bold text-smoke-50 leading-none tnum">23</span>
+        <span class="text-smoke-500 text-xs ml-1">cm</span>
+      </div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-info/60">
+        <polyline class="spark-poly" stroke="currentColor" points="0,2 10,3 20,4 30,7 40,11 50,15 60,18 70,21 80,23 90,24 100,25"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">OBJECT_TOO_CLOSE &lt;15 3s</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-accent-info">
+          <span class="w-1 h-1 bg-accent-info"></span> WATCH
+        </span>
+      </div>
+    </div>
+  </main>
+
+  <!-- AGENT LOG + ActuatorControls -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mb-6">
+
+    <!-- AGENT LOG -->
+    <section class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4">
+      <span class="hud-corner"></span>
+      <div class="flex items-baseline justify-between mb-3">
+        <div class="flex items-baseline gap-2">
+          <span class="live-dot"></span>
+          <span class="font-mono text-[13px] tracking-hud text-smoke-50 font-bold ml-1">AGENT LOG</span>
+          <span class="font-mono text-[11px] text-smoke-500 ml-2">judge-1 · vision-1</span>
+        </div>
+        <span class="t-meta">3 entries</span>
+      </div>
+      <ul class="space-y-0.5">
+        <li class="border-l-2 border-accent-info/40 pl-3 py-1.5">
+          <div class="flex items-baseline gap-2 text-sm">
+            <span class="text-accent-info text-base">◯</span>
+            <span class="font-mono text-smoke-200 tracking-wide">MOTION_DETECTED</span>
+            <span class="t-meta font-mono text-accent-info ml-1 tnum">#INC-260527-A47</span>
+            <span class="ml-auto text-[10px] tracking-widest font-mono text-smoke-500 tnum">14:31:42</span>
+            <span class="text-smoke-500">▾</span>
+          </div>
+          <div class="font-han text-smoke-300 text-xs mt-0.5 truncate">偵測到人員在攝影機前方移動,距離約 47 公分,已…</div>
+        </li>
+        <li class="border-l-2 border-accent-warn/40 pl-3 py-1.5">
+          <div class="flex items-baseline gap-2 text-sm">
+            <span class="text-accent-warn text-base">⚠</span>
+            <span class="font-mono text-smoke-200 tracking-wide">NOISE_EVENT</span>
+            <span class="t-meta font-mono text-accent-info ml-1 tnum">#INC-260527-9F2</span>
+            <span class="ml-auto text-[10px] tracking-widest font-mono text-smoke-500 tnum">14:28:11</span>
+            <span class="text-smoke-500">▾</span>
+          </div>
+          <div class="font-han text-smoke-300 text-xs mt-0.5 truncate">音量瞬間飆高至 62100,可能為拍手或玻璃破碎聲…</div>
+        </li>
+        <li class="border-l-2 border-accent-info/40 pl-3 py-1.5">
+          <div class="flex items-baseline gap-2 text-sm">
+            <span class="text-accent-info text-base">◯</span>
+            <span class="font-mono text-smoke-200 tracking-wide">OBJECT_TOO_CLOSE</span>
+            <span class="t-meta font-mono text-accent-info ml-1 tnum">#INC-260527-D11</span>
+            <span class="ml-auto text-[10px] tracking-widest font-mono text-smoke-500 tnum">14:24:08</span>
+            <span class="text-smoke-500">▾</span>
+          </div>
+          <div class="font-han text-smoke-300 text-xs mt-0.5 italic">
+            <span class="animate-pulse-dot">agent thinking ⋯</span>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ActuatorControls -->
+    <section class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4">
+      <span class="hud-corner"></span>
+      <div class="flex items-baseline justify-between mb-3">
+        <span class="font-mono text-[13px] tracking-hud text-smoke-50 font-bold">MANUAL OVERRIDE</span>
+        <span class="t-meta">control</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 mb-3">
+        <button class="border border-ink-600 hover:bg-ink-700 px-3 py-2 font-mono text-xs tracking-widest text-smoke-200 text-left transition-colors">
+          ▸ BUZZER ON
+          <span class="float-right text-smoke-500">1.5s</span>
+        </button>
+        <button class="border border-accent-ok/70 px-3 py-2 font-mono text-xs tracking-widest text-accent-ok text-left transition-colors"
+                style="box-shadow: 0 0 18px rgba(16,185,129,0.45);">
+          ▸ LED RED
+          <span class="float-right opacity-70">✓</span>
+        </button>
+        <button class="border border-ink-600 hover:bg-ink-700 px-3 py-2 font-mono text-xs tracking-widest text-smoke-200 text-left transition-colors">
+          ▸ LED GREEN
+        </button>
+        <button class="border border-ink-600 hover:bg-ink-700 px-3 py-2 font-mono text-xs tracking-widest text-smoke-200 text-left transition-colors">
+          ▸ LED OFF
+        </button>
+      </div>
+
+      <!-- Servo rows with arc gauge -->
+      <div class="space-y-2 mb-3">
+        <div class="flex items-center gap-3">
+          <span class="t-meta w-12">PAN</span>
+          <input type="range" min="0" max="180" value="90" class="flex-1 h-1.5 accent-accent-photon" disabled/>
+          <svg viewBox="0 0 36 36" class="w-9 h-9 flex-shrink-0">
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#1c2026" stroke-width="3" stroke-dasharray="58.6 100" transform="rotate(150 18 18)"/>
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#00d9ff" stroke-width="3" stroke-dasharray="29.3 100" transform="rotate(150 18 18)"/>
+            <text x="18" y="20" text-anchor="middle" font-size="9" fill="#e5e7eb" font-family="JetBrains Mono" class="tnum">090</text>
+          </svg>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="t-meta w-12">TILT</span>
+          <input type="range" min="0" max="180" value="75" class="flex-1 h-1.5 accent-accent-photon" disabled/>
+          <svg viewBox="0 0 36 36" class="w-9 h-9 flex-shrink-0">
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#1c2026" stroke-width="3" stroke-dasharray="58.6 100" transform="rotate(150 18 18)"/>
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#00d9ff" stroke-width="3" stroke-dasharray="24.4 100" transform="rotate(150 18 18)"/>
+            <text x="18" y="20" text-anchor="middle" font-size="9" fill="#e5e7eb" font-family="JetBrains Mono" class="tnum">075</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Footer breadcrumb -->
+      <div class="t-meta pt-2 border-t border-ink-700/70 tnum">
+        BUZZER:STANDBY · LED:RED · PAN:090° · TILT:075°
+      </div>
+    </section>
+  </div>
+
+  <!-- Floating widgets (MockController + QrPanel) -->
+  <div class="hidden md:block fixed bottom-32 right-4 w-[160px] z-30">
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/90 backdrop-blur p-3">
+      <span class="hud-corner"></span>
+      <div class="t-meta mb-2">INGEST</div>
+      <button class="relative w-full text-left px-2 py-1.5 mb-0.5 border-l-2 border-l-accent-ok bg-accent-ok/10">
+        <span class="text-sm font-mono text-accent-ok">⦿ AUTO</span>
+        <span class="ml-auto inline-flex items-center gap-1.5 float-right">
+          <span class="live-dot"></span>
+          <span class="t-meta text-accent-photon">LIVE</span>
+        </span>
+        <div class="absolute inset-x-0 bottom-0 h-px border-energize text-accent-ok"></div>
+      </button>
+      <button class="block w-full text-left px-2 py-1.5 mb-0.5 text-sm font-mono text-smoke-500 hover:bg-ink-800/60">
+        ○ MOCK
+      </button>
+      <button class="block w-full text-left px-2 py-1.5 text-sm font-mono text-smoke-500 hover:bg-ink-800/60">
+        ○ OFF
+      </button>
+    </div>
+  </div>
+
+  <div class="hidden md:block fixed bottom-4 right-4 w-24 z-30">
+    <div class="hud-frame relative border border-accent-info/40 bg-ink-900/95 p-2 text-accent-info">
+      <span class="hud-corner"></span>
+      <div class="w-20 h-20 bg-white mx-auto" style="background: repeating-conic-gradient(#000 0% 25%, #fff 0% 50%) 50%/8px 8px;"></div>
+      <div class="text-[8px] tracking-widest text-center mt-1 font-mono">SCAN ME</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-ink-700 pt-3 mt-2 flex flex-wrap items-center justify-between gap-2 t-meta">
+    <span>SSE · rule engine · judge-1 / qwen2:1.5b · vision-1 / qwen2.5vl:3b</span>
+    <span class="text-smoke-500/60">demo2 · build W6 · 2026-05-27</span>
+  </footer>
+</section>
+
+
+<!-- ===================================================================== -->
+<!-- SHOT 2 · Dashboard CRITICAL — heat_sustained + ribbon + border-energize -->
+<!-- ===================================================================== -->
+<section class="px-4 py-4 md:px-7 md:py-6 max-w-[1480px] mx-auto border-t border-ink-700/40">
+  <span class="shot-label">SHOT 02 · CRITICAL ALERT</span>
+
+  <!-- Header (same chrome, simplified for this shot) -->
+  <header class="mb-4 md:mb-5 border border-ink-600 bg-ink-900/70 backdrop-blur-[1px] hud-frame relative">
+    <span class="hud-corner"></span>
+    <div class="flex flex-wrap items-stretch">
+      <div class="flex items-center gap-3 px-4 py-3 border-r border-ink-600">
+        <span class="text-accent-strix font-bold text-xl leading-none animate-breathe">◢◣</span>
+        <div class="leading-tight">
+          <div class="font-mono text-[15px] md:text-base font-bold tracking-hud text-smoke-50">SENSOR STATION</div>
+          <div class="t-meta">
+            <span style="color: rgba(0,217,255,0.8);">SYS:OK</span>
+            <span class="mx-1.5 text-smoke-600">·</span>
+            <span class="text-accent-danger">MODE:CRIT</span>
+            <span class="mx-1.5 text-smoke-600">·</span>
+            <span>STRIX HALO</span>
+          </div>
+        </div>
+      </div>
+      <div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3">
+        <div class="flex items-center gap-2"><span class="live-dot"></span><span class="t-meta">ingest</span><span class="font-mono text-xs text-accent-photon tracking-widest tnum">live</span></div>
+        <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 bg-accent-ok"></span><span class="t-meta">judge</span><span class="font-mono text-xs text-smoke-200 tracking-widest tnum">qwen2:1.5b</span></div>
+        <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 bg-accent-ok"></span><span class="t-meta">seq</span><span class="font-mono text-xs text-smoke-200 tracking-widest tnum">90531</span></div>
+        <a href="#" class="ml-auto inline-flex items-center gap-2 border border-accent-photon/70 text-accent-photon px-2.5 py-1.5 font-mono text-[11px] tracking-hud">
+          <span class="w-1.5 h-1.5 bg-accent-photon animate-breathe"></span> [VLM]
+        </a>
+      </div>
+      <div class="px-4 py-3 border-l border-ink-600 flex flex-col items-end">
+        <span class="t-meta">utc+8</span>
+        <span class="font-mono text-base md:text-lg font-bold tracking-widest text-smoke-100 tnum">
+          14:38:07<span class="ml-1 text-[10px] text-accent-photon/60 tnum">.851</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Critical AlertBanner with ribbon-edge + border-energize -->
+  <div class="hud-frame ribbon-edge relative border-2 bg-ink-900/95 mb-4 md:mb-5 border-accent-danger/90 text-accent-danger animate-pulse-danger">
+    <span class="hud-corner"></span>
+    <div class="flex items-stretch">
+      <div class="flex-shrink-0 flex flex-col items-center justify-center px-3 py-3 border-r border-current/40 min-w-[64px]">
+        <span class="text-2xl leading-none mb-1">⛔</span>
+        <span class="text-[10px] tracking-hud font-mono font-bold">CRIT</span>
+        <span class="text-[10px] tracking-widest text-current/70 mt-0.5">危險</span>
+      </div>
+      <div class="flex-1 px-4 py-3 min-w-0">
+        <div class="flex items-baseline gap-3 mb-1.5">
+          <span class="t-meta font-mono text-accent-info tnum">#INC-260527-F1A</span>
+          <span class="t-meta">rule</span>
+          <span class="font-mono text-sm text-current font-bold tracking-wide">HEAT_SUSTAINED</span>
+          <span class="ml-auto text-[10px] tracking-widest font-mono text-current/60 tnum">14:37:42</span>
+        </div>
+        <div class="font-han text-sm md:text-[15px] leading-relaxed text-smoke-100">
+          環境溫度已持續超過 32°C 達 60 秒以上,建議立即檢查空調系統是否正常運作
+        </div>
+        <div class="mt-1.5 font-han text-smoke-400 text-xs md:text-sm">
+          <span class="t-meta mr-2 text-current/70">▸</span>
+          檢查空調設定 / 通風口是否阻塞,蜂鳴器已自動鳴響
+        </div>
+        <div class="mt-2 pt-2 border-t border-current/20 text-smoke-300 font-han text-xs md:text-sm">
+          <span class="text-[10px] tracking-widest font-mono text-accent-info mr-2">👁 SCENE</span>
+          辦公桌前無人,空調出風口正常,窗戶緊閉
+          <span class="ml-2 text-[10px] tracking-widest font-mono text-smoke-500/70">(21.3s)</span>
+        </div>
+      </div>
+      <button class="flex-shrink-0 w-10 flex items-center justify-center text-current/60 border-l border-current/40">✕</button>
+    </div>
+    <!-- border-energize sweep along bottom -->
+    <div class="absolute inset-x-0 bottom-0 h-px border-energize text-accent-danger"></div>
+  </div>
+
+  <!-- Sensor cards (5) showing TRIP on TEMP, ARMED on AUDIO -->
+  <main class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-4 mb-4 md:mb-5">
+
+    <!-- 01 TEMP — TRIP (red pulse) -->
+    <div class="hud-frame relative border border-accent-danger/80 bg-ink-900/80 p-4 animate-pulse-danger text-accent-danger">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="t-meta">01</div>
+          <div class="t-meta text-smoke-400 mt-0.5">TEMP °C</div>
+        </div>
+        <div class="font-mono text-[10px] tracking-widest text-accent-warn tnum">▲ +0.4 / 10s</div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2">
+        <span class="text-[2.6rem] font-bold text-accent-danger leading-none tnum">33.7</span>
+        <span class="text-smoke-500 text-xs ml-1">°C</span>
+      </div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-danger">
+        <defs>
+          <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.5"/>
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="M0,22 L10,22 L20,21 L30,18 L40,14 L50,10 L60,8 L70,6 L80,5 L90,4 L100,3 L100,28 L0,28 Z" fill="url(#g2)"/>
+        <polyline class="spark-poly" stroke="currentColor" points="0,22 10,22 20,21 30,18 40,14 50,10 60,8 70,6 80,5 90,4 100,3"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">HEAT_SUSTAINED &gt;32 60s</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-accent-danger">
+          <span class="w-1 h-1 bg-accent-danger animate-pulse-dot"></span> TRIP
+        </span>
+      </div>
+    </div>
+
+    <!-- 02 HUMID — NOMINAL -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 text-accent-info/40">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div><div class="t-meta">02</div><div class="t-meta text-smoke-400 mt-0.5">HUMID %</div></div>
+        <div class="font-mono text-[10px] tracking-widest text-smoke-500">→ —— / 10s</div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2"><span class="text-[2.6rem] font-bold text-smoke-50 leading-none tnum">48</span><span class="text-smoke-500 text-xs ml-1">%RH</span></div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-info/40">
+        <polyline class="spark-poly" stroke="currentColor" points="0,14 10,15 20,14 30,16 40,15 50,14 60,15 70,14 80,15 90,14 100,15"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">—</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-smoke-400"><span class="w-1 h-1 bg-smoke-500"></span> NOMINAL</span>
+      </div>
+    </div>
+
+    <!-- 03 MOTION — NOMINAL idle -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 text-accent-info/40">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div><div class="t-meta">03</div><div class="t-meta text-smoke-400 mt-0.5">MOTION</div></div>
+        <div class="font-mono text-[10px] tracking-widest text-smoke-500">→ —— / 10s</div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2"><span class="text-[2.2rem] font-bold text-smoke-100 leading-none">IDLE</span></div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-info/40">
+        <polyline class="spark-poly" stroke="currentColor" points="0,24 10,24 20,24 30,24 40,24 50,24 60,24 70,24 80,24 90,24 100,24"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">MOTION_DETECTED + vision</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-smoke-400"><span class="w-1 h-1 bg-smoke-500"></span> NOMINAL</span>
+      </div>
+    </div>
+
+    <!-- 04 AUDIO — ARMED (breathe-warn) -->
+    <div class="hud-frame relative border border-orange-400/70 bg-ink-900/80 p-4 breathe-warn" style="color:#fb923c;">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div><div class="t-meta">04</div><div class="t-meta text-smoke-400 mt-0.5">AUDIO RMS</div></div>
+        <div class="font-mono text-[10px] tracking-widest text-accent-warn tnum">▲ +12k / 10s</div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2"><span class="text-[2.6rem] font-bold text-smoke-50 leading-none tnum">48,720</span><span class="text-smoke-500 text-xs ml-1">rms</span></div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8" style="color:#fb923c;">
+        <polyline class="spark-poly" stroke="currentColor" points="0,22 10,20 20,21 30,18 40,15 50,12 60,9 70,7 80,5 90,4 100,4"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">NOISE_EVENT &gt;50k 1s + vision</span>
+        <span class="inline-flex items-center gap-1.5 font-mono" style="color:#fb923c;"><span class="w-1 h-1" style="background:#fb923c"></span> ARMED</span>
+      </div>
+    </div>
+
+    <!-- 05 DIST — NOMINAL -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 text-accent-info/40">
+      <span class="hud-corner"></span>
+      <div class="flex items-start justify-between mb-2">
+        <div><div class="t-meta">05</div><div class="t-meta text-smoke-400 mt-0.5">DIST cm</div></div>
+        <div class="font-mono text-[10px] tracking-widest text-accent-warn tnum">▲ +2.0 / 10s</div>
+      </div>
+      <div class="flex items-baseline gap-1 my-2"><span class="text-[2.6rem] font-bold text-smoke-50 leading-none tnum">62</span><span class="text-smoke-500 text-xs ml-1">cm</span></div>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="w-full h-8 text-accent-info/40">
+        <polyline class="spark-poly" stroke="currentColor" points="0,18 10,17 20,17 30,16 40,15 50,15 60,14 70,13 80,12 90,11 100,10"/>
+      </svg>
+      <div class="mt-3 flex items-baseline justify-between text-[11px] tracking-widest">
+        <span class="font-mono text-smoke-500">OBJECT_TOO_CLOSE &lt;15 3s</span>
+        <span class="inline-flex items-center gap-1.5 font-mono text-smoke-400"><span class="w-1 h-1 bg-smoke-500"></span> NOMINAL</span>
+      </div>
+    </div>
+  </main>
+
+  <div class="t-meta text-smoke-500 text-center pt-4">
+    SHOT 02 重點:critical AlertBanner 帶 ribbon-edge + border-energize sweep,TEMP 卡片進入 TRIP 紅色 pulse,AUDIO 卡片進入 ARMED 橘色 breathing。
+  </div>
+</section>
+
+
+<!-- ===================================================================== -->
+<!-- SHOT 3 · VLM Chat (#/vlm) — image dock + streaming response             -->
+<!-- ===================================================================== -->
+<section class="px-4 py-4 md:px-7 md:py-6 max-w-[1480px] mx-auto border-t border-ink-700/40">
+  <span class="shot-label">SHOT 03 · VLM CHAT</span>
+
+  <header class="mb-4 md:mb-5 border border-ink-600 bg-ink-900/70 backdrop-blur-[1px] hud-frame relative">
+    <span class="hud-corner"></span>
+    <div class="flex flex-wrap items-stretch">
+      <div class="flex items-center gap-3 px-4 py-3 border-r border-ink-600">
+        <a href="#" class="inline-flex items-center gap-2 border border-ink-500 text-smoke-300 px-2.5 py-1.5 font-mono text-[11px] tracking-hud">← DASHBOARD</a>
+      </div>
+      <div class="flex-1 flex items-center px-4 py-3">
+        <div>
+          <div class="font-mono text-[15px] md:text-base font-bold tracking-hud text-smoke-50">VLM AGENT</div>
+          <div class="t-meta">vision-language model · streaming</div>
+        </div>
+        <div class="ml-auto flex items-center gap-2">
+          <span class="live-dot"></span>
+          <span class="t-meta">model</span>
+          <span class="font-mono text-xs text-accent-photon tracking-widest tnum">qwen2.5vl:3b</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-[480px_1fr] gap-4">
+
+    <!-- LEFT: Image dock -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4">
+      <span class="hud-corner"></span>
+      <div class="flex items-baseline justify-between mb-3">
+        <span class="font-mono text-[13px] tracking-hud text-smoke-50 font-bold">INPUT IMAGE</span>
+        <span class="t-meta">slot IM</span>
+      </div>
+      <div class="relative aspect-[4/5] border border-ink-700 bg-ink-950 overflow-hidden">
+        <img src="https://picsum.photos/seed/strix-vlm-input/720/900" alt="" class="w-full h-full object-contain"/>
+        <button class="absolute top-2 right-2 w-7 h-7 bg-ink-950/90 border border-smoke-500 text-smoke-300 text-base">×</button>
+        <div class="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+          <span class="bg-ink-950/70 text-smoke-300 font-mono text-[10px] tracking-widest px-2 py-1">portrait_768.jpg</span>
+          <span class="bg-ink-950/70 text-smoke-400 font-mono text-[10px] tracking-widest tnum px-2 py-1">DOWNSCALED → 1024px · 184 KB</span>
+        </div>
+      </div>
+      <div class="mt-3 t-meta text-smoke-500">DRAG / CLICK / PASTE · MAX 1024PX</div>
+    </div>
+
+    <!-- RIGHT: Chat transcript -->
+    <div class="hud-frame relative border border-ink-600 bg-ink-900/80 p-4 flex flex-col min-h-[600px]">
+      <span class="hud-corner"></span>
+      <div class="flex items-baseline justify-between mb-3">
+        <span class="font-mono text-[13px] tracking-hud text-smoke-50 font-bold">TRANSCRIPT</span>
+        <span class="t-meta">2 turns</span>
+      </div>
+
+      <div class="flex-1 space-y-3 overflow-y-auto pr-1">
+
+        <!-- User turn -->
+        <div class="pl-3 border-l-2 border-l-accent-strix">
+          <div class="t-meta mb-1 text-smoke-500">USER · 14:42:03</div>
+          <div class="text-[13px] text-smoke-100 font-han leading-relaxed">這張圖看到什麼?有幾個人?</div>
+        </div>
+
+        <!-- Assistant turn (streaming) -->
+        <div class="relative pl-3 border-l-2 border-l-accent-photon">
+          <div class="absolute left-0 top-0 bottom-0 w-px border-energize text-accent-photon"></div>
+          <div class="t-meta mb-1 text-smoke-500">ASSISTANT · qwen2.5vl:3b · streaming…</div>
+          <div class="text-[13px] text-smoke-50 font-han leading-relaxed">
+            畫面中有一位戴眼鏡的男性,身穿淺色襯衫,正坐在書桌前操作筆記型電腦,身後是書架與一盞檯燈,環境採光偏暖<span class="inline-block w-2 h-3 ml-0.5 bg-accent-photon animate-pulse-dot" style="vertical-align: text-bottom;"></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Input area at bottom -->
+      <div class="border-t border-ink-700 pt-3 mt-3">
+        <div class="flex items-end gap-2">
+          <textarea rows="2" placeholder="繼續對話 — Enter 送出 · Shift+Enter 換行"
+                    class="flex-1 bg-ink-800 border border-ink-600 px-3 py-2 font-mono text-[13px] text-smoke-100 outline-none resize-none placeholder:text-smoke-500"></textarea>
+          <button class="border border-accent-photon bg-accent-photon/15 text-accent-photon px-4 py-2 font-mono text-[11px] tracking-hud">
+            SEND →
+          </button>
+        </div>
+        <div class="t-meta mt-2 text-smoke-500 flex items-center gap-3 tnum">
+          <span>STREAMING…</span>
+          <span class="font-mono">·</span>
+          <span>3.2s · 28 tok/s</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ===================================================================== -->
+<!-- SHOT 4 · Mobile Push Banner — what a phone visitor sees when alert fires-->
+<!-- ===================================================================== -->
+<section class="px-4 py-12 md:px-7 md:py-16 max-w-[1480px] mx-auto border-t border-ink-700/40">
+  <span class="shot-label">SHOT 04 · MOBILE PUSH</span>
+
+  <div class="text-center mb-8">
+    <h2 class="font-mono text-xl text-smoke-50 tracking-hud font-bold">MOBILE PUSH BANNER</h2>
+    <p class="t-meta text-smoke-500 mt-1">QR 掃進的手機端看到的 alert 通知條 — 震動 + 音效 + 6s 倒數</p>
+  </div>
+
+  <div class="flex flex-wrap items-start justify-center gap-10">
+
+    <!-- Phone frame 1: INFO motion -->
+    <div class="text-center">
+      <div class="t-meta text-accent-info mb-2">A · INFO · motion_detected</div>
+      <div class="relative mx-auto" style="width: 360px; height: 720px; background: #050505; border: 3px solid #2a2a2a; border-radius: 36px; overflow: hidden;">
+        <!-- Status bar -->
+        <div class="absolute top-0 inset-x-0 flex items-center justify-between px-6 pt-2 text-[10px] text-smoke-100 tnum z-30">
+          <span>14:32</span>
+          <span>•••</span>
+          <span>⋮⋮⋮ 95%</span>
+        </div>
+        <!-- Background -->
+        <div class="absolute inset-0 px-3 pt-9 pb-3"
+             style="background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 24px 24px; background-color: #0a0c10;">
+          <!-- ALERT POPUP -->
+          <div class="hud-frame relative border-2 bg-ink-900/95 backdrop-blur border-accent-info text-accent-info mt-2 shadow-[0_8px_32px_rgba(0,0,0,0.6)]">
+            <span class="hud-corner"></span>
+            <div class="telemetry-strip absolute top-0 inset-x-0"></div>
+            <div class="flex items-stretch">
+              <div class="flex-shrink-0 flex flex-col items-center justify-center px-2 py-2.5 border-r border-current/40 min-w-[58px]">
+                <span class="text-2xl leading-none mb-0.5">◯</span>
+                <span class="text-[9px] tracking-hud font-mono font-bold">INFO</span>
+                <span class="text-[8px] tracking-widest text-current/70 mt-0.5">提示</span>
+              </div>
+              <div class="flex-1 px-2.5 py-2 min-w-0">
+                <div class="flex items-baseline gap-1.5 mb-0.5">
+                  <span class="font-mono text-[11px] text-current font-bold tracking-wide truncate">MOTION_DETECTED</span>
+                  <span class="ml-auto text-[9px] tracking-widest font-mono text-current/60 tnum">14:31</span>
+                </div>
+                <div class="text-smoke-50 font-han text-[13px] leading-snug">
+                  偵測到人員在攝影機前方移動,距離約 47 公分
+                </div>
+                <div class="mt-1 font-han text-smoke-300 text-[11px]">
+                  <span class="t-meta text-current/70 mr-1.5">▸</span>
+                  確認區域人員,如為展示動線屬正常
+                </div>
+              </div>
+              <button class="flex-shrink-0 w-7 flex items-center justify-center text-current/60 border-l border-current/40">×</button>
+            </div>
+            <!-- Countdown bar (gradient) -->
+            <div class="h-1 bg-current/15">
+              <div class="h-full" style="width: 68%; background: linear-gradient(to right, currentColor, transparent);"></div>
+            </div>
+          </div>
+          <!-- Below: actual dashboard preview behind banner -->
+          <div class="mt-4 grid grid-cols-2 gap-2 opacity-50">
+            <div class="hud-frame border border-ink-600 bg-ink-900/80 p-2"><span class="hud-corner"></span>
+              <div class="t-meta">01 TEMP</div><div class="font-mono text-base text-smoke-50 tnum">28.4</div>
+            </div>
+            <div class="hud-frame border border-ink-600 bg-ink-900/80 p-2"><span class="hud-corner"></span>
+              <div class="t-meta">02 HUMID</div><div class="font-mono text-base text-smoke-50 tnum">52</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phone frame 2: CRITICAL heat -->
+    <div class="text-center">
+      <div class="t-meta text-accent-danger mb-2">B · CRIT · heat_sustained</div>
+      <div class="relative mx-auto" style="width: 360px; height: 720px; background: #050505; border: 3px solid #2a2a2a; border-radius: 36px; overflow: hidden;">
+        <div class="absolute top-0 inset-x-0 flex items-center justify-between px-6 pt-2 text-[10px] text-smoke-100 tnum z-30">
+          <span>14:38</span>
+          <span>•••</span>
+          <span>⋮⋮⋮ 95%</span>
+        </div>
+        <div class="absolute inset-0 px-3 pt-9 pb-3"
+             style="background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 24px 24px; background-color: #0a0c10;">
+          <div class="hud-frame relative border-2 bg-ink-900/95 backdrop-blur border-accent-danger text-accent-danger animate-pulse-danger mt-2 shadow-[0_8px_32px_rgba(0,0,0,0.6)]">
+            <span class="hud-corner"></span>
+            <div class="telemetry-strip absolute top-0 inset-x-0"></div>
+            <div class="flex items-stretch">
+              <div class="flex-shrink-0 flex flex-col items-center justify-center px-2 py-2.5 border-r border-current/40 min-w-[58px]">
+                <span class="text-2xl leading-none mb-0.5">⛔</span>
+                <span class="text-[9px] tracking-hud font-mono font-bold">CRIT</span>
+                <span class="text-[8px] tracking-widest text-current/70 mt-0.5">危險</span>
+              </div>
+              <div class="flex-1 px-2.5 py-2 min-w-0">
+                <div class="flex items-baseline gap-1.5 mb-0.5">
+                  <span class="font-mono text-[11px] text-current font-bold tracking-wide truncate">HEAT_SUSTAINED</span>
+                  <span class="ml-auto text-[9px] tracking-widest font-mono text-current/60 tnum">14:37</span>
+                </div>
+                <div class="text-smoke-50 font-han text-[13px] leading-snug">
+                  環境溫度已持續超過 32°C 達 60 秒
+                </div>
+                <div class="mt-1 font-han text-smoke-300 text-[11px]">
+                  <span class="t-meta text-current/70 mr-1.5">▸</span>
+                  檢查空調,蜂鳴器已自動鳴響
+                </div>
+              </div>
+              <button class="flex-shrink-0 w-7 flex items-center justify-center text-current/60 border-l border-current/40">×</button>
+            </div>
+            <!-- Critical: border-energize line above countdown -->
+            <div class="h-px border-energize text-accent-danger"></div>
+            <div class="h-1 bg-current/15">
+              <div class="h-full" style="width: 88%; background: linear-gradient(to right, currentColor, transparent);"></div>
+            </div>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-2 opacity-50">
+            <div class="hud-frame border border-accent-danger/80 bg-ink-900/80 p-2 text-accent-danger animate-pulse-danger"><span class="hud-corner"></span>
+              <div class="t-meta">01 TEMP</div><div class="font-mono text-base text-accent-danger tnum">33.7</div>
+            </div>
+            <div class="hud-frame border border-ink-600 bg-ink-900/80 p-2"><span class="hud-corner"></span>
+              <div class="t-meta">02 HUMID</div><div class="font-mono text-base text-smoke-50 tnum">48</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="mt-10 text-center font-han text-[13px] text-smoke-500 max-w-2xl mx-auto">
+    手機掃 QR 進 dashboard → 任何 alert 觸發都會跳這條 push banner(僅觸控裝置)+ 震動 + 蜂鳴 + 6 秒倒數
+  </p>
+</section>
+
+<footer class="border-t border-ink-700 px-6 md:px-10 py-12 text-center t-meta">
+  <div class="text-accent-photon mb-2">strix sensor station · preview only</div>
+  <p class="font-han text-[13px] text-smoke-500 normal-case tracking-normal">
+    此 HTML 為單檔靜態預覽,給截圖 / 提案用。實際 booth 在 <code class="font-mono">demo2/scripts/start-booth.ps1</code>。
+  </p>
+</footer>
+
+</body>
+</html>

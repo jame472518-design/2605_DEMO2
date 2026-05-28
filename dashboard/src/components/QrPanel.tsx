@@ -70,7 +70,7 @@ export function QrPanel() {
         type="button"
         onClick={() => setExpanded(true)}
         title="點擊放大"
-        className="fixed bottom-4 right-4 z-30 border border-ink-600 bg-ink-900/90 backdrop-blur-sm p-2 hover:border-accent-info transition-colors group"
+        className="fixed bottom-4 right-4 z-30 border border-ink-600 bg-ink-900/90 backdrop-blur-sm p-2 hover:border-accent-info hover:shadow-[0_0_18px_rgba(0,217,255,0.35)] transition-colors group"
       >
         <img
           src={qrDataUrl}
@@ -98,11 +98,15 @@ export function QrPanel() {
             <p className="text-[10px] tracking-widest font-mono text-smoke-500 text-center mb-4">
               (need to be on the same WiFi as this PC)
             </p>
-            <img
-              src={qrDataUrl}
-              alt="LAN dashboard QR — large"
-              className="w-72 h-72 mx-auto bg-white p-2 mb-4"
-            />
+            <div className="hud-frame relative mx-auto w-72 h-72 mb-4 text-accent-photon">
+              <span className="hud-corner" />
+              <img
+                src={qrDataUrl}
+                alt="LAN dashboard QR — large"
+                className="w-full h-full bg-white p-2 block"
+              />
+              <div className="scanline-overlay" />
+            </div>
             <p className="text-xs font-mono text-smoke-300 break-all text-center leading-relaxed">
               {lanUrl}
             </p>
