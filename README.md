@@ -66,6 +66,33 @@ ESP32 韌體燒錄 + 接線 + WiFi secrets:見 `docs/WIRING-ESP32.md`。
 
 ---
 
+## 設定檔(移機 / 換模型只改這個)
+
+所有環境相依的值集中在 **`demo.config.ps1`**,7 支 script 啟動時都會讀它:
+
+```powershell
+$DEMO2_PROFILE      = "strixdemo2"             # OpenClaw profile 名
+$DEMO2_GATEWAY_PORT = 18790                    # gateway port
+$DEMO2_HTTPS_PORT   = 18443                    # HTTPS proxy port(手機 QR)
+$DEMO2_BRIDGE_PORT  = 8765                     # Python mock bridge port
+$DEMO2_OLLAMA_URL   = "http://127.0.0.1:11434" # Ollama 位置(可指向別台機器)
+$DEMO2_JUDGE_MODEL  = "qwen2:1.5b"             # 異常 → 中文解釋(輕量文字)
+$DEMO2_VISION_MODEL = "qwen2.5vl:3b"           # auto-vision 場景描述(多模態)
+$DEMO2_VLM_MODEL    = "qwen2.5vl:3b"           # /vlm 對話頁(多模態)
+```
+
+| 情境 | 改什麼 | 之後做什麼 |
+|---|---|---|
+| 換模型(例如 Strix Halo 用 gemma) | 上面 3 個 `*_MODEL` | `ollama pull <model>` → 重跑 `start-booth.ps1` |
+| Ollama 跑在別台機器 | `DEMO2_OLLAMA_URL` | 重跑 `start-booth.ps1` |
+| 換 port / profile | 對應變數 | 刪 `~/.openclaw-<profile>/openclaw.json` → 重跑 bootstrap + install-plugins |
+
+> **機密不在這裡**:gateway token 在 `.env.local`(bootstrap 自動產);WiFi / ESP32 host 在 `arduino/esp32_sensor_node/secrets.h`。兩者都 gitignored。
+>
+> ⚠ `demo.config.ps1` 註解保持 **ASCII / 英文** — Windows PowerShell 5.1 對 UTF-8 無 BOM + 中文會解析失敗,導致變數沒設成。
+
+---
+
 ## 啟動
 
 ### Booth(展場 — 全螢幕 kiosk)
@@ -89,12 +116,10 @@ ESP32 韌體燒錄 + 接線 + WiFi secrets:見 `docs/WIRING-ESP32.md`。
 ### 正常視窗(開發 — 有網址欄、taskbar)
 
 ```powershell
-.\scripts\start-demo.ps1 -NoBrowser
-
-# 另外開正常 Firefox
-$token = (Get-Content .env.local | Where-Object { $_ -match "^OPENCLAW_GATEWAY_TOKEN=" }) -replace "^OPENCLAW_GATEWAY_TOKEN=",""
-& 'C:\Program Files\Mozilla Firefox\firefox.exe' "http://127.0.0.1:18790/?token=$token"
+.\scripts\start-booth.ps1 -Dev
 ```
+
+`-Dev` 跟一般 booth 完全一樣(gateway + proxy + 預熱),只差 Firefox 開**正常視窗**(`--new-window`)而非 `--kiosk`。展場正式 demo 就拿掉 `-Dev`。
 
 ### Mock 模式(完全沒 ESP32 / Python bridge)
 
@@ -177,6 +202,7 @@ Dashboard header 右上 **[VLM]** chip → 切到 `#/vlm` → 拖一張圖 + 文
 ```
 demo2/
 ├─ README.md                                  ← 本文件
+├─ demo.config.ps1                            ★ 移機 / 換模型設定(scripts 都讀它)
 ├─ arduino/esp32_sensor_node/                 ESP32 韌體(C++/Arduino)
 │  └─ docs/(腳位設定截圖等)
 ├─ dashboard/                                 SPA(Vite + React + Tailwind)
@@ -205,10 +231,13 @@ demo2/
 
 ## 開發筆記
 
+- **設定集中**:ports / profile / 模型 / Ollama URL 全在 `demo.config.ps1`,scripts dot-source 它。換機 / 換模型不要直接改 scripts,改 config 就好
+- **模型 env 鏈**:plugin 讀 `OPENCLAW_DEMO2_*_MODEL` 環境變數;`start-demo.ps1` 啟動 gateway 前會從 config export 這些值。所以改 config 的模型 → 重啟即生效,不用動 plugin 原始碼
+- **`.ps1` 註解一律 ASCII**:Windows PowerShell 5.1 對 UTF-8 無 BOM + 中文會解析失敗(變數靜默沒設成)
 - **commit identity**:repo-local `james / james472518@gmail.com`(非全域)
 - **build artifacts**:`dashboard/dist/` 跟 `openclaw-plugins/*/dist/` 要 rebuild 才生效。改完前端 / plugin 跑 `pnpm build` + `install-plugins.ps1` 才會被 gateway 載到
 - **Hot reload**:dashboard 可 `pnpm dev`(localhost:5173,不走 gateway)。Plugin 沒 HMR,改完要 stop-demo + rebuild + install + restart
-- **profile 隔離**:所有 openclaw 指令 `--profile strixdemo2`,不污染你個人 `~/.openclaw/`
+- **profile 隔離**:所有 openclaw 指令 `--profile <DEMO2_PROFILE>`,不污染你個人 `~/.openclaw/`
 
 ---
 
