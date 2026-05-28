@@ -8,6 +8,9 @@
 
 $ErrorActionPreference = "Continue"
 
+# Single source of truth for ports / profile — edit demo.config.ps1.
+. "$PSScriptRoot\..\demo.config.ps1"
+
 function StopOnPort($port, $label) {
     $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     if (-not $conns) {
@@ -29,15 +32,15 @@ function StopOnPort($port, $label) {
 
 # Try graceful gateway stop first (cleaner shutdown of channels/sidecars)
 try {
-    $null = openclaw --profile strixdemo2 gateway stop 2>&1
+    $null = openclaw --profile $DEMO2_PROFILE gateway stop 2>&1
 } catch {
     # ignore — fall through to port-kill
 }
 Start-Sleep -Seconds 1
 
-StopOnPort 18790 "gateway"
-StopOnPort 18443 "https-proxy"
-StopOnPort 8765  "bridge"
+StopOnPort $DEMO2_GATEWAY_PORT "gateway"
+StopOnPort $DEMO2_HTTPS_PORT   "https-proxy"
+StopOnPort $DEMO2_BRIDGE_PORT  "bridge"
 
 Write-Host ""
 Write-Host "demo2 stopped." -ForegroundColor Green

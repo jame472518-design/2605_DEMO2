@@ -42,6 +42,9 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 
+# Single source of truth for ports / profile / models — edit demo.config.ps1.
+. "$PSScriptRoot\..\demo.config.ps1"
+
 function Step($msg) {
     Write-Host ""
     Write-Host "==> $msg" -ForegroundColor Cyan
@@ -60,7 +63,7 @@ if (-not (Test-Path $envPath)) {
     Fail ".env.local not found at $envPath. Run scripts\bootstrap-profile.ps1 first."
 }
 
-$profileDir = Join-Path $env:USERPROFILE ".openclaw-strixdemo2"
+$profileDir = $DEMO2_PROFILE_DIR
 $pluginDist = Join-Path $profileDir "extensions\sensor-bridge\dist\index.js"
 if (-not (Test-Path $pluginDist)) {
     Fail "sensor-bridge plugin not installed. Run scripts\install-plugins.ps1 first."
@@ -74,10 +77,10 @@ if (-not (Test-Path $staticIndex)) {
 # Filter by State=Listen — TIME_WAIT / ESTABLISHED entries from old client
 # connections have OwningProcess=0 and don't block re-binding the port. Only
 # a real LISTENing process is a problem.
-$port18790 = Get-NetTCPConnection -LocalPort 18790 -State Listen -ErrorAction SilentlyContinue
-if ($port18790) {
-    $pid18790 = ($port18790 | Select-Object -First 1).OwningProcess
-    Fail "Port 18790 already in use (pid $pid18790). Run scripts\stop-demo.ps1 first."
+$portGw = Get-NetTCPConnection -LocalPort $DEMO2_GATEWAY_PORT -State Listen -ErrorAction SilentlyContinue
+if ($portGw) {
+    $pidGw = ($portGw | Select-Object -First 1).OwningProcess
+    Fail "Port $DEMO2_GATEWAY_PORT already in use (pid $pidGw). Run scripts\stop-demo.ps1 first."
 }
 
 if ($useBridge) {
@@ -85,10 +88,10 @@ if ($useBridge) {
     if (-not $py) {
         Fail "python not on PATH. Install Python or run without -Mock/-UsbPort (ESP32 mode)."
     }
-    $port8765 = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
-    if ($port8765) {
-        $pid8765 = ($port8765 | Select-Object -First 1).OwningProcess
-        Fail "Port 8765 already in use (pid $pid8765). Run scripts\stop-demo.ps1 first."
+    $portBridge = Get-NetTCPConnection -LocalPort $DEMO2_BRIDGE_PORT -State Listen -ErrorAction SilentlyContinue
+    if ($portBridge) {
+        $pidBridge = ($portBridge | Select-Object -First 1).OwningProcess
+        Fail "Port $DEMO2_BRIDGE_PORT already in use (pid $pidBridge). Run scripts\stop-demo.ps1 first."
     }
 }
 
@@ -97,9 +100,9 @@ $ollama = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollama) {
     Warn "ollama not on PATH — judge enrichment unavailable; alerts ship without Chinese explanation."
 } else {
-    $hasQwen = (ollama list 2>&1 | Select-String -Quiet "qwen2:1.5b")
-    if (-not $hasQwen) {
-        Warn "qwen2:1.5b not pulled. Run: ollama pull qwen2:1.5b   (alerts ship without explanation until then)"
+    $hasJudge = (ollama list 2>&1 | Select-String -Quiet ([regex]::Escape($DEMO2_JUDGE_MODEL)))
+    if (-not $hasJudge) {
+        Warn "$DEMO2_JUDGE_MODEL not pulled. Run: ollama pull $DEMO2_JUDGE_MODEL   (alerts ship without explanation until then)"
     }
 }
 
@@ -113,23 +116,39 @@ if (-not $token) { Fail "OPENCLAW_GATEWAY_TOKEN missing in $envPath" }
 
 Step "Launching gateway in a new window"
 
+# Export the plugin's runtime knobs into THIS process's environment so the
+# gateway (launched below via Start-Process, which inherits our env) and in
+# turn the sensor-bridge plugin pick up the model / Ollama choices from
+# demo.config.ps1. Without this the plugin silently falls back to its
+# hard-coded defaults and changing models in the config would do nothing.
+$env:OPENCLAW_DEMO2_OLLAMA_URL   = $DEMO2_OLLAMA_URL
+$env:OPENCLAW_DEMO2_JUDGE_MODEL  = $DEMO2_JUDGE_MODEL
+$env:OPENCLAW_DEMO2_VISION_MODEL = $DEMO2_VISION_MODEL
+$env:OPENCLAW_DEMO2_VLM_MODEL    = $DEMO2_VLM_MODEL
+$env:OPENCLAW_DEMO2_BRIDGE_URL   = "http://127.0.0.1:$DEMO2_BRIDGE_PORT"
+
 $gatewayCmd = "Set-Location '$repo'; " +
+              "`$env:OPENCLAW_DEMO2_OLLAMA_URL='$DEMO2_OLLAMA_URL'; " +
+              "`$env:OPENCLAW_DEMO2_JUDGE_MODEL='$DEMO2_JUDGE_MODEL'; " +
+              "`$env:OPENCLAW_DEMO2_VISION_MODEL='$DEMO2_VISION_MODEL'; " +
+              "`$env:OPENCLAW_DEMO2_VLM_MODEL='$DEMO2_VLM_MODEL'; " +
+              "`$env:OPENCLAW_DEMO2_BRIDGE_URL='http://127.0.0.1:$DEMO2_BRIDGE_PORT'; " +
               "Write-Host 'demo2 gateway window - Ctrl+C to stop.' -ForegroundColor Cyan; " +
-              "openclaw --profile strixdemo2 gateway --port 18790 --verbose"
+              "openclaw --profile $DEMO2_PROFILE gateway --port $DEMO2_GATEWAY_PORT --verbose"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $gatewayCmd | Out-Null
 
 $ready = $false
 for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Milliseconds 500
     try {
-        $r = Invoke-WebRequest "http://127.0.0.1:18790/?token=$token" `
+        $r = Invoke-WebRequest "$DEMO2_GATEWAY_URL/?token=$token" `
             -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
         if ($r.StatusCode -eq 200) { $ready = $true; break }
     } catch {
         if ($_.Exception.Message -match "401") { $ready = $true; break }
     }
 }
-if (-not $ready) { Fail "Gateway didn't respond on :18790 within 20s. Check the gateway window for errors." }
+if (-not $ready) { Fail "Gateway didn't respond on :$DEMO2_GATEWAY_PORT within 20s. Check the gateway window for errors." }
 Write-Host "    gateway ready"
 
 # -- Launch bridge (only in mock or USB mode) ------------------------------
@@ -147,7 +166,7 @@ if ($useBridge) {
 
 # -- Open browser ----------------------------------------------------------
 
-$url = "http://127.0.0.1:18790/?token=$token"
+$url = "$DEMO2_GATEWAY_URL/?token=$token"
 if (-not $NoBrowser) {
     Step "Opening dashboard"
     if ($Edge) {
@@ -172,7 +191,7 @@ Write-Host "============================================================"
 Write-Host "  demo2 running"
 Write-Host "============================================================"
 Write-Host "  Dashboard URL : $url"
-Write-Host "  LAN URL       : http://<this-PC-LAN-IP>:18790/?token=$token"
+Write-Host "  LAN URL       : http://<this-PC-LAN-IP>:$DEMO2_GATEWAY_PORT/?token=$token"
 Write-Host "                  (run 'ipconfig' to find your LAN IP)"
 Write-Host ""
 if (-not $useBridge) {

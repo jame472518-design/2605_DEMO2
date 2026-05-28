@@ -15,7 +15,11 @@
         minimal here; per-plugin config goes in the plugin's own manifest.
 #>
 
-$profileDir = "$env:USERPROFILE\.openclaw-strixdemo2"
+# Single source of truth for ports / profile / models. Edit demo.config.ps1
+# when migrating machines or swapping models.
+. "$PSScriptRoot\..\demo.config.ps1"
+
+$profileDir = $DEMO2_PROFILE_DIR
 $configPath = Join-Path $profileDir "openclaw.json"
 New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
 
@@ -32,7 +36,7 @@ $config = @{
         defaults = @{
             maxConcurrent = 1
             model = @{
-                primary = "ollama/qwen2:1.5b"
+                primary = "ollama/$DEMO2_JUDGE_MODEL"
                 fallbacks = @()
             }
         }
@@ -42,7 +46,7 @@ $config = @{
         auth = @{ mode = "token"; token = $gatewayToken }
         bind = "lan"
         mode = "local"
-        port = 18790
+        port = $DEMO2_GATEWAY_PORT
         tailscale = @{ mode = "off" }
     }
     models = @{
@@ -50,11 +54,11 @@ $config = @{
             ollama = @{
                 api = "ollama"
                 apiKey = "ollama-local"
-                baseUrl = "http://127.0.0.1:11434"
+                baseUrl = $DEMO2_OLLAMA_URL
                 models = @(
                     @{
-                        id = "qwen2:1.5b"
-                        name = "qwen2:1.5b"
+                        id = $DEMO2_JUDGE_MODEL
+                        name = $DEMO2_JUDGE_MODEL
                         contextWindow = 32768
                         input = @("text")
                         cost = @{ input = 0; output = 0; cacheRead = 0; cacheWrite = 0 }
@@ -114,5 +118,5 @@ Write-Host "  Gateway token : $gatewayToken"
 Write-Host "  Config path   : $configPath"
 Write-Host "  Env file path : $envPath"
 Write-Host ""
-Write-Host "  Next: openclaw --profile strixdemo2 doctor"
+Write-Host "  Next: openclaw --profile $DEMO2_PROFILE doctor"
 Write-Host "============================================================"

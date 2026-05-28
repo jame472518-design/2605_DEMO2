@@ -1,7 +1,13 @@
 param(
-    [string]$Profile = "strixdemo2"
+    [string]$Profile = ""
 )
 $ErrorActionPreference = "Stop"
+
+# Single source of truth for profile — edit demo.config.ps1. An explicit
+# -Profile arg still overrides it.
+. "$PSScriptRoot\..\demo.config.ps1"
+if (-not $Profile) { $Profile = $DEMO2_PROFILE }
+
 $pluginsRoot = Resolve-Path "$PSScriptRoot\..\openclaw-plugins"
 $installRoot = Join-Path $env:USERPROFILE ".openclaw-$Profile\extensions"
 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null

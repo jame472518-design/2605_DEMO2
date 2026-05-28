@@ -24,9 +24,13 @@
 
 param(
     [switch]$Mock,
-    [switch]$ForceHeat
+    [switch]$ForceHeat,
+    [switch]$Dev       # windowed Firefox (URL bar + taskbar) instead of kiosk
 )
 $ErrorActionPreference = "Stop"
+
+# Single source of truth for ports / profile / models — edit demo.config.ps1.
+. "$PSScriptRoot\..\demo.config.ps1"
 
 function Step($msg) { Write-Host ""; Write-Host "==> $msg" -ForegroundColor Cyan }
 function Warn($msg) { Write-Host "!! $msg" -ForegroundColor Yellow }
@@ -56,7 +60,7 @@ Write-Host "    using $firefox"
 
 # -- Start gateway (idempotent — skip if already up) ----------------------
 
-$already = Get-NetTCPConnection -LocalPort 18790 -State Listen -ErrorAction SilentlyContinue
+$already = Get-NetTCPConnection -LocalPort $DEMO2_GATEWAY_PORT -State Listen -ErrorAction SilentlyContinue
 if ($already) {
     Step "Gateway already LISTEN-ing (pid $($already.OwningProcess)) — skipping start"
 } else {
@@ -71,11 +75,11 @@ if ($already) {
 
     $ready = $false
     for ($i = 0; $i -lt 20; $i++) {
-        $c = Get-NetTCPConnection -LocalPort 18790 -State Listen -ErrorAction SilentlyContinue
+        $c = Get-NetTCPConnection -LocalPort $DEMO2_GATEWAY_PORT -State Listen -ErrorAction SilentlyContinue
         if ($c) { $ready = $true; break }
         Start-Sleep -Milliseconds 500
     }
-    if (-not $ready) { Fail "Gateway not LISTEN-ing on :18790 after start-demo.ps1 returned." }
+    if (-not $ready) { Fail "Gateway not LISTEN-ing on :$DEMO2_GATEWAY_PORT after start-demo.ps1 returned." }
 }
 
 # -- Start HTTPS reverse proxy (idempotent — skip if already up) ----------
@@ -84,25 +88,29 @@ if ($already) {
 
 $repo = Resolve-Path "$PSScriptRoot\.."
 $proxyDir = Join-Path $repo "tools\https-proxy"
-$proxyAlready = Get-NetTCPConnection -LocalPort 18443 -State Listen -ErrorAction SilentlyContinue
+$proxyAlready = Get-NetTCPConnection -LocalPort $DEMO2_HTTPS_PORT -State Listen -ErrorAction SilentlyContinue
 if ($proxyAlready) {
     Step "HTTPS proxy already LISTEN-ing (pid $($proxyAlready.OwningProcess)) — skipping start"
 } elseif (Test-Path $proxyDir) {
-    Step "Starting HTTPS proxy :18443 → :18790"
+    Step "Starting HTTPS proxy :$DEMO2_HTTPS_PORT -> :$DEMO2_GATEWAY_PORT"
     if (-not (Test-Path (Join-Path $proxyDir "node_modules"))) {
         Push-Location $proxyDir
         Write-Host "    npm install (first run only)..."
         npm install --silent 2>&1 | Out-Null
         Pop-Location
     }
+    # proxy.mjs reads DEMO2_HTTPS_PORT + DEMO2_UPSTREAM from env — feed them
+    # from demo.config.ps1 so the proxy follows the same single source of truth.
     $proxyCmd = "Set-Location '$proxyDir'; " +
+                "`$env:DEMO2_HTTPS_PORT='$DEMO2_HTTPS_PORT'; " +
+                "`$env:DEMO2_UPSTREAM='$DEMO2_GATEWAY_URL'; " +
                 "Write-Host 'demo2 https-proxy - Ctrl+C to stop.' -ForegroundColor Cyan; " +
                 "node proxy.mjs"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $proxyCmd | Out-Null
 
     $proxyReady = $false
     for ($i = 0; $i -lt 20; $i++) {
-        $c = Get-NetTCPConnection -LocalPort 18443 -State Listen -ErrorAction SilentlyContinue
+        $c = Get-NetTCPConnection -LocalPort $DEMO2_HTTPS_PORT -State Listen -ErrorAction SilentlyContinue
         if ($c) { $proxyReady = $true; break }
         Start-Sleep -Milliseconds 500
     }
@@ -124,19 +132,19 @@ if (-not $token) { Fail "OPENCLAW_GATEWAY_TOKEN missing in $envPath" }
 
 # Surface itself uses 127.0.0.1 — Firefox grants webcam/mic on localhost
 # without an HTTPS cert. Phones scan the QR on the dashboard for the LAN URL.
-$url = "http://127.0.0.1:18790/?token=$token"
+$url = "$DEMO2_GATEWAY_URL/?token=$token"
 
 # -- Pre-warm Ollama VLM (background) -------------------------------------
 # qwen2.5vl:3b weighs ~10GB resident. First call after boot or after the
 # Ollama idle eviction takes 30-60s — booth-killing latency. Pre-warm now
 # so the first SCAN is already warm. Per-call `keep_alive: "10m"` in
 # vision.ts keeps it alive across visitor gaps.
-$visionModel = "qwen2.5vl:3b"
+$visionModel = $DEMO2_VISION_MODEL
 Step "Pre-warming $visionModel (background, won't block kiosk launch)"
 $warmCmd = @"
 try {
     `$body = '{`"model`":`"$visionModel`",`"prompt`":`" `",`"stream`":false,`"keep_alive`":`"10m`",`"options`":{`"num_predict`":1}}'
-    `$null = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -Body `$body -ContentType 'application/json' -TimeoutSec 180
+    `$null = Invoke-RestMethod -Uri '$DEMO2_OLLAMA_URL/api/generate' -Method Post -Body `$body -ContentType 'application/json' -TimeoutSec 180
     Write-Host '[ollama-warmup] $visionModel pre-warmed and pinned for 10m' -ForegroundColor Green
 } catch {
     Write-Host ('[ollama-warmup] failed: ' + `$_.Exception.Message) -ForegroundColor Yellow
@@ -144,11 +152,17 @@ try {
 "@
 Start-Process powershell -ArgumentList "-WindowStyle","Hidden","-Command",$warmCmd | Out-Null
 
-# -- Launch Firefox in kiosk ----------------------------------------------
+# -- Launch Firefox --------------------------------------------------------
 
-Step "Launching Firefox kiosk"
-Write-Host "    $firefox --kiosk $url"
-Start-Process -FilePath $firefox -ArgumentList "--kiosk", $url | Out-Null
+if ($Dev) {
+    Step "Launching Firefox (windowed — dev mode)"
+    Write-Host "    $firefox --new-window $url"
+    Start-Process -FilePath $firefox -ArgumentList "--new-window", $url | Out-Null
+} else {
+    Step "Launching Firefox kiosk"
+    Write-Host "    $firefox --kiosk $url"
+    Start-Process -FilePath $firefox -ArgumentList "--kiosk", $url | Out-Null
+}
 
 Write-Host ""
 Write-Host "============================================================"

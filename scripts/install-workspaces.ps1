@@ -9,9 +9,14 @@
 #>
 
 param(
-    [string]$ProfileName = "strixdemo2"
+    [string]$ProfileName = ""
 )
 $ErrorActionPreference = "Stop"
+
+# Single source of truth for profile — edit demo.config.ps1. An explicit
+# -ProfileName arg still overrides it.
+. "$PSScriptRoot\..\demo.config.ps1"
+if (-not $ProfileName) { $ProfileName = $DEMO2_PROFILE }
 
 $repoRoot   = Resolve-Path "$PSScriptRoot\.."
 $wsRoot     = Join-Path $repoRoot "openclaw-workspaces"
