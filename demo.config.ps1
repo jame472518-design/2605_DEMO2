@@ -39,9 +39,9 @@ $DEMO2_OLLAMA_URL = "http://127.0.0.1:11434"
 # machine runs Ollama. When the Strix Halo box arrives and you want gemma,
 # this is the only place to change (judge can be a small text model; vision /
 # vlm need a multimodal model):
-$DEMO2_JUDGE_MODEL  = "qwen2:1.5b"      # anomaly -> one-line Chinese explanation
-$DEMO2_VISION_MODEL = "qwen2.5vl:3b"    # auto-vision -> Chinese scene description
-$DEMO2_VLM_MODEL    = "qwen2.5vl:3b"    # /vlm chat page -> multimodal conversation
+$DEMO2_JUDGE_MODEL  = "qwen3.6:35b"     # anomaly -> one-line Chinese explanation (35B MoE on remote Ollama)
+$DEMO2_VISION_MODEL = "qwen3.6:35b"     # auto-vision -> Chinese scene description
+$DEMO2_VLM_MODEL    = "qwen3.6:35b"     # /vlm chat page -> multimodal conversation
 
 # ----------------------------------------------------------------------------
 # Derived values (do not edit) - used directly by scripts

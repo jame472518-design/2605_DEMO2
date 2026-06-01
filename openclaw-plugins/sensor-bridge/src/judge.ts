@@ -50,9 +50,9 @@ export class Judge {
   constructor(cfg: JudgeConfig = {}) {
     this.ollamaBaseUrl = cfg.ollamaBaseUrl ?? "http://127.0.0.1:11434";
     this.model = cfg.model ?? "qwen2:1.5b";
-    // 30s default tolerates a cold model load on the first call. Subsequent
-    // calls (model in VRAM) typically respond in 1-3s for qwen2:1.5b.
-    this.timeoutMs = cfg.timeoutMs ?? 30000;
+    // 120s default -- large models (35B+) can take 30-60s on cold load;
+    // warm calls typically finish in 3-5s.
+    this.timeoutMs = cfg.timeoutMs ?? 120000;
     this.systemPrompt = loadSystemPrompt(cfg.promptDir) ?? DEFAULT_PROMPT;
   }
 
@@ -78,6 +78,10 @@ export class Judge {
           // eliminates the "model returns markdown bullet list" failure mode.
           format: "json",
           options: { temperature: 0.2, num_predict: 200 },
+          keep_alive: "10m",
+          // Disable Qwen3 "thinking" mode -- without this the model puts
+          // all output in the `thinking` field and returns empty `response`.
+          think: false,
         }),
         signal: ctrl.signal,
       });

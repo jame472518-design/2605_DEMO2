@@ -135,6 +135,9 @@ export class Vision {
           // demo-killer. "10m" means Ollama won't evict for 10 minutes after
           // the most recent call.
           keep_alive: "10m",
+          // Disable Qwen3 "thinking" mode -- without this the model puts
+          // all output in the `thinking` field and returns empty `response`.
+          think: false,
         }),
         signal: ctrl.signal,
       });

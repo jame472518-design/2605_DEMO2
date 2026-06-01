@@ -826,6 +826,9 @@ export default definePluginEntry({
               // Match vision.ts — prevents Ollama from evicting the 10GB VLM
               // between dashboard interactions during a booth session.
               keep_alive: "10m",
+              // Disable Qwen3 "thinking" mode -- without this the model puts
+              // all output in the `thinking` field and returns empty `content`.
+              think: false,
             }),
             signal: ctrl.signal,
           });
