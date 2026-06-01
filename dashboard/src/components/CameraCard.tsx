@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { describeImage } from "../lib/api";
 import { gatewayToken } from "../lib/gatewayToken";
+import { useFaceTracker } from "../lib/faceTracker";
 import type { DeviceInfo } from "../types";
+import { FaceOverlay } from "./FaceOverlay";
+
+/** Auto-detect: how long a face must persist before auto-firing vision-1. */
+const AUTO_TRIGGER_MS = 5_000;
+/** Cooldown after an auto-trigger so a still-present person doesn't fire forever. */
+const AUTO_COOLDOWN_MS = 15_000;
 
 type VisionState =
   | { kind: "idle" }
@@ -602,8 +609,10 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
   const [streamKey, setStreamKey] = useState(0);
   const [paused, setPaused] = useState(false);
   const [vision, setVision] = useState<VisionState>({ kind: "idle" });
+  const [autoDetect, setAutoDetect] = useState(false);
   const lastIpRef = useRef<string | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const lastAutoTriggerRef = useRef<number>(0);
 
   const fetchInfo = useCallback(async () => {
     try {
@@ -743,6 +752,33 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
     ? `IRIS-01 / ${info?.device_ip ?? "—"}`
     : `IRIS-01 / ${info?.device_ip ?? "OFFLINE"}`;
 
+  // Face tracking — only runs when AUTO is toggled on AND stream is live.
+  // Returns current face boxes + how long any face has been continuously
+  // present. The auto-trigger effect below watches `presenceMs`.
+  const faceTracker = useFaceTracker(imgRef, Boolean(autoDetect && streaming));
+
+  // Auto-trigger: once a face has been present for AUTO_TRIGGER_MS, fire
+  // vision-1 (same path as the manual SCAN button) and gate further fires
+  // with AUTO_COOLDOWN_MS so a stationary person doesn't spam the model.
+  useEffect(() => {
+    if (!autoDetect) return;
+    if (faceTracker.presenceMs < AUTO_TRIGGER_MS) return;
+    if (vision.kind === "loading") return;
+    const now = Date.now();
+    if (now - lastAutoTriggerRef.current < AUTO_COOLDOWN_MS) return;
+    lastAutoTriggerRef.current = now;
+    void describeScene();
+  }, [
+    autoDetect,
+    faceTracker.presenceMs,
+    vision.kind,
+  ]);
+
+  const presenceProgress = Math.min(
+    1,
+    faceTracker.presenceMs / AUTO_TRIGGER_MS,
+  );
+
   return (
     <div className="relative">
       <div className="aspect-video bg-ink-950 overflow-hidden relative border border-ink-700">
@@ -756,6 +792,13 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
               className="w-full h-full object-cover"
               onError={() => setImageError(true)}
             />
+            {/* Face detection overlay - green tactical brackets on every face
+                MediaPipe finds while AUTO is on. Also shows a thin progress
+                stripe atop each box growing from 0 to 5s of presence. */}
+            <FaceOverlay
+              faces={faceTracker.faces}
+              presenceProgress={autoDetect ? presenceProgress : 0}
+            />
             <HudOverlay
               label={hudLabel}
               meta="MJPEG / 640×480"
@@ -764,6 +807,25 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
               showBitrate={Boolean(streaming)}
             />
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAutoDetect((v) => !v)}
+                disabled={faceTracker.loading}
+                title={
+                  faceTracker.loading
+                    ? "載入人臉偵測模型中..."
+                    : autoDetect
+                      ? "自動偵測 ON - 偵測到人臉 5 秒後自動觸發 vision-1"
+                      : "自動偵測 OFF - 點開啟"
+                }
+                className={`bg-ink-950/70 px-2 py-1 text-[10px] tracking-widest font-mono border ${
+                  autoDetect
+                    ? "border-accent-ok text-accent-ok hover:bg-accent-ok/10"
+                    : "border-smoke-500/60 text-smoke-300 hover:bg-ink-800"
+                } ${faceTracker.loading ? "opacity-50 cursor-wait" : ""}`}
+              >
+                {faceTracker.loading ? "⋯ LOADING" : autoDetect ? "◉ AUTO" : "◯ AUTO"}
+              </button>
               <button
                 type="button"
                 onClick={describeScene}
@@ -790,6 +852,13 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
                 ↻
               </button>
             </div>
+            {/* AUTO presence countdown badge - shows '4.2s / 5s' as the timer
+                accumulates so the user can see why it's about to fire. */}
+            {autoDetect && faceTracker.presenceMs > 200 && (
+              <div className="absolute bottom-2 right-2 z-20 bg-ink-950/80 px-2 py-1 text-[10px] tracking-widest font-mono text-accent-ok border border-accent-ok/40">
+                AUTO · {(faceTracker.presenceMs / 1000).toFixed(1)}s / 5.0s
+              </div>
+            )}
             <VisionOverlay
               state={vision}
               onDismiss={() => setVision({ kind: "idle" })}
