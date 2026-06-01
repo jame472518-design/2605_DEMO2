@@ -17,7 +17,19 @@ foreach ($p in $plugins) {
     Write-Host "[$($p.Name)] building..."
     Push-Location $p.FullName
     try {
-        if (-not (Test-Path "dist\index.js") -or ((Get-Item "src\index.ts").LastWriteTime -gt (Get-Item "dist\index.js" -ErrorAction SilentlyContinue).LastWriteTime)) {
+        # Compare dist/index.js mtime against the NEWEST file under src/**.
+        # The previous check only looked at src/index.ts, so edits to other
+        # source files (vision.ts, judge.ts, rules.ts, mockFrames.ts...) were
+        # silently treated as "dist up-to-date" and never re-compiled.
+        $distFile = "dist\index.js"
+        $needsBuild = -not (Test-Path $distFile)
+        if (-not $needsBuild) {
+            $distMtime = (Get-Item $distFile).LastWriteTime
+            $newestSrc = Get-ChildItem "src" -Recurse -File -Filter "*.ts" -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($newestSrc -and $newestSrc.LastWriteTime -gt $distMtime) { $needsBuild = $true }
+        }
+        if ($needsBuild) {
             pnpm run build
         } else {
             Write-Host "[$($p.Name)] dist is up-to-date, skipping build"
@@ -57,53 +69,29 @@ foreach ($p in $plugins) {
         }
     }
 
-    # Ship runtime dependencies (production deps only).
+    # Runtime dependencies: just run `npm install --omit=dev` IN the install
+    # dir using the package.json we just copied. This gets us a clean flat
+    # node_modules without the pnpm symlink/junction hell that crippled the
+    # previous Copy-Item / robocopy approach (Windows 11 "untrusted mount
+    # point" blocked traversing pnpm's symlinks to the central store, so deps
+    # like `yaml` silently got skipped and the plugin failed to load with
+    # MODULE_NOT_FOUND).
     $pkg = Get-Content "$($p.FullName)\package.json" -Raw | ConvertFrom-Json
-    $runtimeDeps = @()
-    if ($pkg.PSObject.Properties.Match('dependencies').Count -gt 0 -and $pkg.dependencies) {
-        $runtimeDeps = $pkg.dependencies.PSObject.Properties.Name
-    }
-    if ($runtimeDeps.Count -gt 0) {
-        $copied = @{}
-        function Copy-Dep([string]$depName, [string]$srcRoot, [string]$dstRoot) {
-            if ($script:copied.ContainsKey($depName)) { return }
-            $script:copied[$depName] = $true
-            $depSrc = Join-Path $srcRoot "node_modules\$depName"
-            if (-not (Test-Path $depSrc)) {
-                Write-Warning "  runtime dep '$depName' not found at $depSrc - skipping"
-                return
+    $hasRuntimeDeps = $pkg.PSObject.Properties.Match('dependencies').Count -gt 0 -and $pkg.dependencies -and ($pkg.dependencies.PSObject.Properties.Name.Count -gt 0)
+    if ($hasRuntimeDeps) {
+        Write-Host "[$($p.Name)] installing runtime deps via npm in $dst..."
+        Push-Location $dst
+        try {
+            $null = npm install --omit=dev --no-audit --no-fund --no-package-lock --silent 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "  npm install exit $LASTEXITCODE - plugin may fail to load if a dep is missing"
+            } else {
+                $installedCount = (Get-ChildItem "node_modules" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+                Write-Host "[$($p.Name)] installed $installedCount runtime dep(s) -> node_modules/"
             }
-            $depDst = Join-Path $dstRoot "node_modules\$depName"
-            New-Item -ItemType Directory -Force -Path (Split-Path $depDst -Parent) | Out-Null
-            # Copy-Item -Recurse fails with "untrusted mount point" on pnpm-style
-            # symlinks/junctions to the central store (seen on Strix Halo + pnpm 11).
-            # Try Copy-Item first; if it errors, fall back to robocopy with /XJ
-            # (exclude junctions - transitive deps are copied separately via the
-            # Copy-Dep recursion below, so we don't need to follow nested links).
-            try {
-                Copy-Item -Recurse -Force $depSrc $depDst -ErrorAction Stop
-            } catch {
-                Write-Warning "  Copy-Item failed for '$depName' ($($_.Exception.Message.Trim())). Falling back to robocopy."
-                $null = robocopy $depSrc $depDst /E /COPY:DAT /R:0 /W:0 /NFL /NDL /NJH /NJS /NP /XJ
-                # robocopy exit codes 0-7 are success; 8+ is failure
-                if ($LASTEXITCODE -ge 8) {
-                    Write-Warning "  robocopy also failed for '$depName' (exit $LASTEXITCODE). Skipping."
-                }
-                $global:LASTEXITCODE = 0
-            }
-            $depPkgPath = Join-Path $depSrc "package.json"
-            if (Test-Path $depPkgPath) {
-                $depPkg = Get-Content $depPkgPath -Raw | ConvertFrom-Json
-                if ($depPkg.PSObject.Properties.Match('dependencies').Count -gt 0 -and $depPkg.dependencies) {
-                    foreach ($subDep in $depPkg.dependencies.PSObject.Properties.Name) {
-                        Copy-Dep $subDep $srcRoot $dstRoot
-                    }
-                }
-            }
+        } finally {
+            Pop-Location
         }
-        $script:copied = @{}
-        foreach ($d in $runtimeDeps) { Copy-Dep $d $p.FullName $dst }
-        Write-Host "[$($p.Name)] copied $($script:copied.Count) runtime dep(s) -> node_modules/"
     }
 
     Write-Host "[$($p.Name)] installed -> $dst"
