@@ -1,87 +1,57 @@
-import { useEffect, useRef, useState } from "react";
-import { describeImage } from "../lib/api";
-import { gatewayToken } from "../lib/gatewayToken";
+import { useEffect, useState } from "react";
 
 /**
- * LiveDescriber — auto-runs the vision-1 agent against the live camera frame
- * on a fixed interval, displays the latest description big at the top and a
- * scrolling history of older descriptions below.
+ * LiveDescriber - displays vision-1 SCAN results on the right of the camera.
  *
- * Capture path: /api/esp32/capture (single JPEG, port 80) — separate from the
- * MJPEG stream slot on port 81, so it doesn't interfere with LiveCamera.
+ * Subscribes to window "vision-result" CustomEvents dispatched by CameraCard
+ * whenever a SCAN succeeds (from IRIS-01 ESP32 capture or LENS webcam grab).
+ * Latest result big at top, history of the last 5 fades below.
  *
- * The single inFlightRef guard prevents stacking calls if the vision agent
- * is slower than the tick interval (likely on Surface; not an issue on the
- * Strix Halo, where 3-5s is typical for qwen2.5vl:3b).
+ * No auto-loop, no polling, no Ollama calls - purely a display panel.
+ * SCAN trigger lives on the camera (left).
  */
 
 type Entry = {
   id: string;
-  text: string;
-  ts: number;
+  description: string;
+  source: string;
   tookMs: number;
+  ts: number;
 };
 
-const INTERVAL_MS = 12_000;
-const MAX_HISTORY = 6;
+type VisionResultDetail = {
+  description: string;
+  source: string;
+  took_ms: number;
+  ts: number;
+};
 
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
+const MAX_HISTORY = 6;
 
 export function LiveDescriber() {
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [thinking, setThinking] = useState(false);
-  const [paused, setPaused] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inFlightRef = useRef(false);
 
   useEffect(() => {
-    if (paused) return;
-
-    const tick = async () => {
-      if (inFlightRef.current) return;
-      inFlightRef.current = true;
-      setThinking(true);
-      setError(null);
-      try {
-        const token = gatewayToken();
-        const url = new URL("/api/esp32/capture", window.location.origin);
-        if (token) url.searchParams.set("token", token);
-        const r = await fetch(url.toString());
-        if (!r.ok) throw new Error(`camera ${r.status}`);
-        const blob = await r.blob();
-        const dataUrl = await blobToDataUrl(blob);
-        const reply = await describeImage(dataUrl, "LIVE-AUTO");
-        setEntries((prev) => {
-          const next: Entry[] = [
-            {
-              id: Math.random().toString(36).slice(2, 10),
-              text: reply.description,
-              ts: Date.now(),
-              tookMs: reply.took_ms,
-            },
-            ...prev,
-          ];
-          return next.slice(0, MAX_HISTORY);
-        });
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setThinking(false);
-        inFlightRef.current = false;
-      }
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<VisionResultDetail>).detail;
+      if (!detail || typeof detail.description !== "string") return;
+      setEntries((prev) => {
+        const next: Entry[] = [
+          {
+            id: Math.random().toString(36).slice(2, 10),
+            description: detail.description,
+            source: detail.source ?? "AGENT",
+            tookMs: detail.took_ms ?? 0,
+            ts: detail.ts ?? Date.now(),
+          },
+          ...prev,
+        ];
+        return next.slice(0, MAX_HISTORY);
+      });
     };
-
-    void tick();
-    const id = window.setInterval(() => void tick(), INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [paused]);
+    window.addEventListener("vision-result", handler);
+    return () => window.removeEventListener("vision-result", handler);
+  }, []);
 
   const latest = entries[0];
 
@@ -89,89 +59,75 @@ export function LiveDescriber() {
     <div className="hud-frame relative border border-ink-600 bg-ink-900/85 backdrop-blur-[1px] p-4 md:p-5 flex flex-col h-full min-h-[280px] text-accent-info">
       <span className="hud-corner" />
 
-      {/* Status header */}
-      <div className="flex items-center justify-between mb-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          {thinking ? (
-            <span className="live-dot" />
-          ) : paused ? (
-            <span className="w-1.5 h-1.5 bg-smoke-500" />
-          ) : (
-            <span className="w-1.5 h-1.5 bg-accent-ok animate-breathe" />
-          )}
+          <span
+            className={`w-1.5 h-1.5 ${latest ? "bg-accent-info animate-breathe" : "bg-smoke-500"}`}
+          />
           <span className="t-meta">
-            {thinking
-              ? "AGENT ANALYZING"
-              : paused
-                ? "PAUSED"
-                : `LIVE · ${INTERVAL_MS / 1000}s INTERVAL`}
+            <span className="text-accent-info mr-1.5">VISION-1</span>
+            {latest ? `· ${entries.length} SCAN${entries.length > 1 ? "S" : ""}` : "· STANDBY"}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setPaused((p) => !p)}
-          className="inline-flex items-center gap-1.5 border border-ink-600 hover:border-smoke-500 text-smoke-300 hover:text-smoke-100 px-2.5 py-1 font-mono text-[11px] tracking-widest transition-colors"
-        >
-          {paused ? "▶ RESUME" : "⏸ PAUSE"}
-        </button>
+        {latest && (
+          <span className="font-mono text-[11px] text-smoke-500 tracking-widest tnum">
+            {(latest.tookMs / 1000).toFixed(1)}s
+          </span>
+        )}
       </div>
 
       {/* Latest big */}
       <div className="flex-1 flex flex-col min-h-0">
         {latest ? (
           <>
+            <div className="font-mono text-[10px] tracking-widest text-accent-info mb-2">
+              <span className="mr-2">👁</span>
+              {latest.source}
+              <span className="text-smoke-500 mx-2">·</span>
+              <span className="text-smoke-500 tnum">
+                {new Date(latest.ts).toLocaleTimeString("zh-TW", { hour12: false })}
+              </span>
+            </div>
             <div
               key={latest.id}
-              className="font-han text-smoke-50 text-base md:text-lg leading-relaxed mb-2 animate-stagger-in"
+              className="font-han text-smoke-50 text-base md:text-lg leading-relaxed animate-stagger-in"
             >
-              {latest.text}
+              {latest.description}
             </div>
-            <div className="font-mono text-[11px] text-smoke-500 tracking-widest tnum">
-              {new Date(latest.ts).toLocaleTimeString("zh-TW", {
-                hour12: false,
-              })}
-              <span className="mx-2">·</span>
-              {(latest.tookMs / 1000).toFixed(1)}s
-              <span className="mx-2">·</span>
-              vision-1
-            </div>
-          </>
-        ) : thinking ? (
-          <div className="font-han text-smoke-400 text-base animate-breathe">
-            分析第一張影像…
-          </div>
-        ) : error ? (
-          <div className="font-han text-accent-danger text-sm">
-            無法擷取畫面:
-            <span className="font-mono text-xs ml-2">{error}</span>
-          </div>
-        ) : (
-          <div className="font-han text-smoke-500">等待 IRIS-01 連線…</div>
-        )}
 
-        {/* History */}
-        {entries.length > 1 && (
-          <div className="mt-6 pt-4 border-t border-ink-700">
-            <div className="t-meta text-smoke-500 mb-3">HISTORY</div>
-            <ul className="space-y-3 overflow-y-auto">
-              {entries.slice(1).map((e, i) => (
-                <li
-                  key={e.id}
-                  className="font-han text-smoke-300 text-sm leading-relaxed"
-                  style={{ opacity: Math.max(0.35, 0.85 - i * 0.12) }}
-                >
-                  <span className="t-meta text-smoke-500 mr-2 tnum">
-                    {new Date(e.ts).toLocaleTimeString("zh-TW", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                      hour12: false,
-                    })}
-                  </span>
-                  {e.text}
-                </li>
-              ))}
-            </ul>
+            {entries.length > 1 && (
+              <div className="mt-5 pt-4 border-t border-ink-700">
+                <div className="t-meta text-smoke-500 mb-3">HISTORY</div>
+                <ul className="space-y-2">
+                  {entries.slice(1).map((e, i) => (
+                    <li
+                      key={e.id}
+                      className="font-han text-smoke-300 text-sm leading-relaxed"
+                      style={{ opacity: Math.max(0.4, 0.85 - i * 0.12) }}
+                    >
+                      <span className="t-meta text-smoke-500 mr-2 tnum">
+                        {new Date(e.ts).toLocaleTimeString("zh-TW", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                          hour12: false,
+                        })}
+                      </span>
+                      {e.description}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+            <div className="text-5xl opacity-30 mb-3">👁</div>
+            <div className="t-meta text-smoke-400 mb-2">NO SCAN YET</div>
+            <div className="font-han text-smoke-500 text-sm leading-relaxed max-w-xs">
+              點左邊鏡頭右上角的「👁 SCAN」按鈕,vision-1 會描述當下畫面,結果出現在這裡。
+            </div>
           </div>
         )}
       </div>

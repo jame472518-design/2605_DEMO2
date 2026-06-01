@@ -119,7 +119,9 @@ function VisionOverlay({
   state: VisionState;
   onDismiss: () => void;
 }) {
-  if (state.kind === "idle") return null;
+  // The "ok" (description) case is rendered by the right-side LiveDescriber
+  // panel via a window event - skip it here so the result doesn't show twice.
+  if (state.kind === "idle" || state.kind === "ok") return null;
   return (
     <div className="absolute bottom-0 left-0 right-0 z-10 bg-ink-950/85 border-t border-accent-info/40 backdrop-blur-sm">
       <div className="flex items-start gap-2 p-2">
@@ -131,15 +133,6 @@ function VisionOverlay({
             <p className="text-xs text-smoke-300 font-han animate-pulse-dot">
               agent 分析中… (VLM 約 5-60 秒,首次更久)
             </p>
-          ) : state.kind === "ok" ? (
-            <>
-              <p className="text-sm text-smoke-100 font-han leading-relaxed">
-                {state.description}
-              </p>
-              <p className="text-[10px] tracking-widest text-smoke-500 font-mono mt-0.5">
-                {(state.took_ms / 1000).toFixed(1)}s · qwen2.5vl
-              </p>
-            </>
           ) : (
             <p className="text-xs text-accent-danger font-mono break-all">
               {state.message}
@@ -712,6 +705,18 @@ function Esp32View({ showLabel }: { showLabel: boolean }) {
       });
       const reply = await describeImage(dataUrl, "IRIS-01");
       setVision({ kind: "ok", description: reply.description, took_ms: reply.took_ms });
+      // Forward to the right-side panel via a window event so the result
+      // shows there instead of overlaying the camera feed.
+      window.dispatchEvent(
+        new CustomEvent("vision-result", {
+          detail: {
+            description: reply.description,
+            took_ms: reply.took_ms,
+            source: "IRIS-01",
+            ts: Date.now(),
+          },
+        }),
+      );
     } catch (e) {
       setVision({
         kind: "error",
@@ -894,6 +899,18 @@ function WebcamFeed({
         description: reply.description,
         took_ms: reply.took_ms,
       });
+      // Forward to the right-side panel via a window event so the result
+      // shows there instead of overlaying the camera feed.
+      window.dispatchEvent(
+        new CustomEvent("vision-result", {
+          detail: {
+            description: reply.description,
+            took_ms: reply.took_ms,
+            source: activeLabel,
+            ts: Date.now(),
+          },
+        }),
+      );
     } catch (e) {
       setVision({
         kind: "error",
