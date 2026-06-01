@@ -8,8 +8,16 @@ import { MockController } from "./components/MockController";
 import { QrPanel } from "./components/QrPanel";
 import { SensorCard } from "./components/SensorCard";
 import { VlmChat } from "./components/VlmChat";
+import { gatewayToken } from "./lib/gatewayToken";
 import { useSse } from "./lib/sse";
 import type { Alert, AlertUpdate, SensorFrame } from "./types";
+
+type BoothInfo = {
+  judge_model?: string;
+  vision_model?: string;
+  vlm_model?: string;
+  ollama_url?: string;
+};
 
 // View routing via location hash. No router lib — the app has two views
 // (dashboard, vlm chat) and hashchange keeps the URL shareable without
@@ -107,6 +115,24 @@ function Dashboard() {
   const { hms, epochMs } = useUtcClock();
   const liveSensors = frames.length > 0;
 
+  // Fetch booth info once on mount so the header status pills show whatever
+  // models the plugin is ACTUALLY using (from OPENCLAW_DEMO2_*_MODEL env,
+  // which is fed by demo.config.ps1). Without this they're decorative strings.
+  const [boothInfo, setBoothInfo] = useState<BoothInfo | null>(null);
+  useEffect(() => {
+    const token = gatewayToken();
+    const url = new URL("/api/booth/info", window.location.origin);
+    if (token) url.searchParams.set("token", token);
+    fetch(url.toString())
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: BoothInfo | null) => {
+        if (data) setBoothInfo(data);
+      })
+      .catch(() => {
+        /* booth info is decorative — silent fail */
+      });
+  }, []);
+
   return (
     <div className="min-h-screen px-4 py-4 md:px-7 md:py-6 max-w-[1480px] mx-auto">
       {/* === LIVE TELEMETRY STRIP =========================================== */}
@@ -153,8 +179,9 @@ function Dashboard() {
               value={liveSensors ? "live" : "idle"}
               live={liveSensors}
             />
-            <StatusPill ok={true} label="judge" value="qwen2:1.5b" />
-            <StatusPill ok={true} label="vision" value="qwen2.5vl:3b" />
+            <StatusPill ok={true} label="judge" value={boothInfo?.judge_model ?? "..."} />
+            <StatusPill ok={true} label="vision" value={boothInfo?.vision_model ?? "..."} />
+            <StatusPill ok={true} label="vlm" value={boothInfo?.vlm_model ?? "..."} />
             <StatusPill
               ok={true}
               label="seq"

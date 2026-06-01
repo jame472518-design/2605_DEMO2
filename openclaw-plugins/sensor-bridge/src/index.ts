@@ -549,6 +549,10 @@ export default definePluginEntry({
         const httpsAvailable = await probeHttps();
         writeJson(res, 200, {
           ok: true,
+          judge_model: judgeModel,
+          vision_model: visionModel,
+          vlm_model: vlmChatModel,
+          ollama_url: ollamaBaseUrl,
           lan_ips: lanIps,
           port: 18790,
           https_port: httpsAvailable ? httpsPort : null,
