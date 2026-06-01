@@ -35,16 +35,17 @@ export type VisionReply = { description: string };
  * the model emits Simplified Chinese (蓝色) despite the "Traditional Chinese"
  * label; with them it emits Traditional (藍色).
  */
-const DEFAULT_PROMPT = `You are a scene describer. Look at the user-supplied image and write one sentence describing it.
+const DEFAULT_PROMPT = `You are the scene describer at the Strix Halo AI edge-computing demo booth. The image is from a live camera at that booth - visitors are walking by, watching demos, gesturing at displays. Describe what you see, with a tone that lets the visitor feel "the AI is really watching".
 
 Output rules:
 - Output ONLY a single JSON object: {"description": "..."}
 - The description MUST be in Traditional Chinese (繁體中文, zh-TW). NEVER Simplified Chinese.
-  Correct examples: 顯 號 個 體 樣 經 機 學 藍 圖
-  Forbidden Simplified: 显 号 个 体 样 经 机 学 蓝 图
-- 20-40 Chinese characters, one sentence ending with 。
-- Describe only what is visually present: objects, count of people, room type, lighting state.
-- No aesthetic comments, no guesses about identity/emotion/mood.
+  Correct examples: 顯 號 個 體 樣 經 機 學 藍 圖 觀 眾 場
+  Forbidden Simplified: 显 号 个 体 样 经 机 学 蓝 图 观 众 场
+- 60-100 Chinese characters total. One or two sentences. First sentence: scene + people. Optional second sentence: highlight, motion, or notable detail.
+- Describe what is visually present: people count and posture, demo station / display / device on table, exhibition fixtures, lighting. If at a booth context is visible (visitors gesturing at a display, looking at a demo, etc.), say so naturally.
+- Stay factual - no guesses about visitor identity, mood, intent, or brand allegiance.
+- End every sentence with 。 (full-width period).
 - No "The image shows..." prefix, no markdown fences, no English in the description value.`;
 
 /**
@@ -60,20 +61,21 @@ const EXEC_RULES = `
 
 # LLM EXECUTION RULES (read these last, obey strictly)
 
-You are now serving a single image-to-description request.
+You are now serving a single image-to-description request. The image is from a live camera at the **Strix Halo AI edge-computing demo booth**. Visitors are walking by, watching demos, sometimes gesturing at displays.
 
 Output ONLY a single JSON object with one key:
   {"description": "..."}
 
 The "description" value MUST be:
 - Traditional Chinese (繁體中文, zh-TW). NEVER Simplified Chinese.
-  Correct chars: 顯 號 個 體 樣 經 機 學 藍 圖
-  FORBIDDEN chars (Simplified): 显 号 个 体 样 经 机 学 蓝 图
-- 20-40 Chinese characters
-- One sentence, ending with the full-width period 。
-- No "The image shows" prefix, no markdown fences, no English words
-- Describe only what is visually present: objects, count of people, room type, lighting
-- No aesthetic comments, no guesses about identity/emotion`;
+  Correct chars: 顯 號 個 體 樣 經 機 學 藍 圖 觀 眾 場 邊
+  FORBIDDEN chars (Simplified): 显 号 个 体 样 经 机 学 蓝 图 观 众 场 边
+- **60-100 Chinese characters total.** Aim for ~80. Shorter = boring at booth. Longer = breaks demo rhythm.
+- One or two sentences. First sentence: scene + people (positions, posture, count). Optional second sentence: highlight, motion, notable object, or lighting state. End every sentence with 。
+- If demo / booth / visitor context is visible (a display, a station, people gesturing at a screen, observing), **name it naturally** - "展示區", "示範台", "螢幕前", "訪客".
+- Describe only what is visually present. If there is no person say so. If lighting is dim say so. If unclear say "畫面過暗" or "畫面模糊".
+- Stay factual. **No guesses** about visitor identity, mood, intent, age, gender, or brand allegiance.
+- No "The image shows" prefix, no markdown fences, no English words inside the description.`;
 
 export class Vision {
   private readonly systemPrompt: string;
@@ -123,7 +125,11 @@ export class Vision {
           images: [cleaned],
           stream: false,
           format: "json",
-          options: { temperature: 0.2, num_predict: 120 },
+          // temperature 0.35 (was 0.2): allow some variety between consecutive
+          // SCANs at the booth without losing factuality.
+          // num_predict 280 (was 120): 100 Trad-Chinese chars ~ 180-200 tokens,
+          // plus JSON wrapper + safety margin.
+          options: { temperature: 0.35, num_predict: 280 },
           // Keep the VLM resident — booth visitors hit SCAN unpredictably and
           // the 30-60s cold reload of qwen2.5vl:3b (10GB working set) is a
           // demo-killer. "10m" means Ollama won't evict for 10 minutes after
