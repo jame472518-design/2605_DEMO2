@@ -75,7 +75,22 @@ foreach ($p in $plugins) {
             }
             $depDst = Join-Path $dstRoot "node_modules\$depName"
             New-Item -ItemType Directory -Force -Path (Split-Path $depDst -Parent) | Out-Null
-            Copy-Item -Recurse -Force $depSrc $depDst
+            # Copy-Item -Recurse fails with "untrusted mount point" on pnpm-style
+            # symlinks/junctions to the central store (seen on Strix Halo + pnpm 11).
+            # Try Copy-Item first; if it errors, fall back to robocopy with /XJ
+            # (exclude junctions - transitive deps are copied separately via the
+            # Copy-Dep recursion below, so we don't need to follow nested links).
+            try {
+                Copy-Item -Recurse -Force $depSrc $depDst -ErrorAction Stop
+            } catch {
+                Write-Warning "  Copy-Item failed for '$depName' ($($_.Exception.Message.Trim())). Falling back to robocopy."
+                $null = robocopy $depSrc $depDst /E /COPY:DAT /R:0 /W:0 /NFL /NDL /NJH /NJS /NP /XJ
+                # robocopy exit codes 0-7 are success; 8+ is failure
+                if ($LASTEXITCODE -ge 8) {
+                    Write-Warning "  robocopy also failed for '$depName' (exit $LASTEXITCODE). Skipping."
+                }
+                $global:LASTEXITCODE = 0
+            }
             $depPkgPath = Join-Path $depSrc "package.json"
             if (Test-Path $depPkgPath) {
                 $depPkg = Get-Content $depPkgPath -Raw | ConvertFrom-Json
