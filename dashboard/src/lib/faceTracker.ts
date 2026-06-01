@@ -71,8 +71,17 @@ function detectionToBox(
   };
 }
 
+type MediaElement = HTMLImageElement | HTMLVideoElement;
+
+function elementSize(el: MediaElement): { w: number; h: number } {
+  if (el instanceof HTMLVideoElement) {
+    return { w: el.videoWidth, h: el.videoHeight };
+  }
+  return { w: el.naturalWidth, h: el.naturalHeight };
+}
+
 export function useFaceTracker(
-  imgRef: RefObject<HTMLImageElement | null>,
+  ref: RefObject<MediaElement | null>,
   enabled: boolean,
 ): FaceTrackerState {
   const [faces, setFaces] = useState<FaceBox[]>([]);
@@ -120,13 +129,15 @@ export function useFaceTracker(
 
         const detector = detectorRef.current;
         interval = window.setInterval(() => {
-          const img = imgRef.current;
-          if (!img || img.naturalWidth === 0 || img.naturalHeight === 0) return;
+          const el = ref.current;
+          if (!el) return;
+          const { w, h } = elementSize(el);
+          if (w === 0 || h === 0) return;
           try {
-            const result = detector.detect(img);
+            const result = detector.detect(el);
             const now = Date.now();
             const boxes = (result.detections ?? [])
-              .map((d) => detectionToBox(d, img.naturalWidth, img.naturalHeight))
+              .map((d) => detectionToBox(d, w, h))
               .filter((b): b is FaceBox => b !== null);
 
             setFaces(boxes);
@@ -170,7 +181,7 @@ export function useFaceTracker(
       // expensive. It's released when the component finally unmounts via
       // the second effect below.
     };
-  }, [imgRef, enabled]);
+  }, [ref, enabled]);
 
   // Final detector cleanup on full unmount.
   useEffect(() => {

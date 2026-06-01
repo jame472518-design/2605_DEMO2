@@ -940,6 +940,8 @@ function WebcamFeed({
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [activeLabel, setActiveLabel] = useState<string>(label);
   const [vision, setVision] = useState<VisionState>({ kind: "idle" });
+  const [autoDetect, setAutoDetect] = useState(false);
+  const lastAutoTriggerRef = useRef<number>(0);
 
   // Capture current frame → POST to vision-1 agent → show 1-sentence
   // Chinese description as an overlay strip. Doesn't pause the stream.
@@ -1132,6 +1134,26 @@ function WebcamFeed({
 
   const hudLabel = `WEBCAM / ${truncate(showLabel ? label : activeLabel, 22)}`;
 
+  // Face tracker for webcam - same hook used by Esp32View, but bound to the
+  // <video> element. Only active while the feed is live AND AUTO is on.
+  const faceTracker = useFaceTracker(
+    videoRef,
+    Boolean(autoDetect && state === "active"),
+  );
+  useEffect(() => {
+    if (!autoDetect) return;
+    if (faceTracker.presenceMs < AUTO_TRIGGER_MS) return;
+    if (vision.kind === "loading") return;
+    const now = Date.now();
+    if (now - lastAutoTriggerRef.current < AUTO_COOLDOWN_MS) return;
+    lastAutoTriggerRef.current = now;
+    void describeScene();
+  }, [autoDetect, faceTracker.presenceMs, vision.kind, describeScene]);
+  const presenceProgress = Math.min(
+    1,
+    faceTracker.presenceMs / AUTO_TRIGGER_MS,
+  );
+
   return (
     <div className="relative">
       <div className="aspect-video bg-ink-950 overflow-hidden relative border border-ink-700">
@@ -1144,8 +1166,31 @@ function WebcamFeed({
               muted
               className="w-full h-full object-cover"
             />
+            <FaceOverlay
+              faces={faceTracker.faces}
+              presenceProgress={autoDetect ? presenceProgress : 0}
+            />
             <HudOverlay label={hudLabel} meta="getUserMedia" rec tone="info" />
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAutoDetect((v) => !v)}
+                disabled={faceTracker.loading}
+                title={
+                  faceTracker.loading
+                    ? "載入人臉偵測模型中..."
+                    : autoDetect
+                      ? "自動偵測 ON - 偵測到人臉 5 秒後自動觸發 vision-1"
+                      : "自動偵測 OFF - 點開啟"
+                }
+                className={`bg-ink-950/70 px-2 py-1 text-[10px] tracking-widest font-mono border ${
+                  autoDetect
+                    ? "border-accent-ok text-accent-ok hover:bg-accent-ok/10"
+                    : "border-smoke-500/60 text-smoke-300 hover:bg-ink-800"
+                } ${faceTracker.loading ? "opacity-50 cursor-wait" : ""}`}
+              >
+                {faceTracker.loading ? "⋯ LOADING" : autoDetect ? "◉ AUTO" : "◯ AUTO"}
+              </button>
               <button
                 type="button"
                 onClick={describeScene}
@@ -1163,6 +1208,11 @@ function WebcamFeed({
                 ⏸ PAUSE
               </button>
             </div>
+            {autoDetect && faceTracker.presenceMs > 200 && (
+              <div className="absolute bottom-2 right-2 z-20 bg-ink-950/80 px-2 py-1 text-[10px] tracking-widest font-mono text-accent-ok border border-accent-ok/40">
+                AUTO · {(faceTracker.presenceMs / 1000).toFixed(1)}s / 5.0s
+              </div>
+            )}
             <VisionOverlay
               state={vision}
               onDismiss={() => setVision({ kind: "idle" })}
