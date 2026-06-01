@@ -86,7 +86,7 @@ export function LiveDescriber() {
   const latest = entries[0];
 
   return (
-    <div className="card hud-frame relative bg-ink-900/85 backdrop-blur-[1px] p-6 md:p-8 flex flex-col min-h-[400px] lg:min-h-[88vh] text-accent-info">
+    <div className="hud-frame relative border border-ink-600 bg-ink-900/85 backdrop-blur-[1px] p-4 md:p-5 flex flex-col h-full min-h-[280px] text-accent-info">
       <span className="hud-corner" />
 
       {/* Status header */}
@@ -122,7 +122,7 @@ export function LiveDescriber() {
           <>
             <div
               key={latest.id}
-              className="font-han text-smoke-50 text-xl md:text-2xl leading-relaxed mb-3 animate-stagger-in"
+              className="font-han text-smoke-50 text-base md:text-lg leading-relaxed mb-2 animate-stagger-in"
             >
               {latest.text}
             </div>
