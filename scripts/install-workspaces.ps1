@@ -2,7 +2,7 @@
 <#
     install-workspaces.ps1
     Idempotently registers judge-1 in ~/.openclaw-strixdemo2/openclaw.json's
-    agents.list[]. judge-1 is demo2's sole agent — invoked per-event by the
+    agents.list[]. judge-1 is demo2's sole agent - invoked per-event by the
     sensor-bridge plugin to enrich alerts with a Chinese explanation.
 
     Schema: agents.list (array), NOT agents.<id> map (verified in demo1 spike).
@@ -13,7 +13,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-# Single source of truth for profile — edit demo.config.ps1. An explicit
+# Single source of truth for profile - edit demo.config.ps1. An explicit
 # -ProfileName arg still overrides it.
 . "$PSScriptRoot\..\demo.config.ps1"
 if (-not $ProfileName) { $ProfileName = $DEMO2_PROFILE }
@@ -33,7 +33,7 @@ $expectedAgents = @(
 )
 
 # Make sure each workspace dir exists (the markdown files were authored by
-# hand and committed — this script never overwrites their content).
+# hand and committed - this script never overwrites their content).
 foreach ($a in $expectedAgents) {
     New-Item -ItemType Directory -Force -Path $a.workspace | Out-Null
     Write-Host "ws  $($a.id) -> $($a.workspace)"

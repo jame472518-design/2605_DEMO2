@@ -29,7 +29,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-# Single source of truth for ports / profile / models — edit demo.config.ps1.
+# Single source of truth for ports / profile / models - edit demo.config.ps1.
 . "$PSScriptRoot\..\demo.config.ps1"
 
 function Step($msg) { Write-Host ""; Write-Host "==> $msg" -ForegroundColor Cyan }
@@ -58,11 +58,11 @@ Install Firefox (winget install Mozilla.Firefox) and re-run.
 }
 Write-Host "    using $firefox"
 
-# -- Start gateway (idempotent — skip if already up) ----------------------
+# -- Start gateway (idempotent - skip if already up) ----------------------
 
 $already = Get-NetTCPConnection -LocalPort $DEMO2_GATEWAY_PORT -State Listen -ErrorAction SilentlyContinue
 if ($already) {
-    Step "Gateway already LISTEN-ing (pid $($already.OwningProcess)) — skipping start"
+    Step "Gateway already LISTEN-ing (pid $($already.OwningProcess)) - skipping start"
 } else {
     Step "Starting gateway (delegating to start-demo.ps1 -NoBrowser)"
     # NB: $args is a PowerShell automatic variable. Use a hashtable splat
@@ -82,7 +82,7 @@ if ($already) {
     if (-not $ready) { Fail "Gateway not LISTEN-ing on :$DEMO2_GATEWAY_PORT after start-demo.ps1 returned." }
 }
 
-# -- Start HTTPS reverse proxy (idempotent — skip if already up) ----------
+# -- Start HTTPS reverse proxy (idempotent - skip if already up) ----------
 # Mobile Firefox needs HTTPS for getUserMedia on a LAN IP. The proxy listens
 # on :18443 and transparently forwards to the gateway on :18790.
 
@@ -90,7 +90,7 @@ $repo = Resolve-Path "$PSScriptRoot\.."
 $proxyDir = Join-Path $repo "tools\https-proxy"
 $proxyAlready = Get-NetTCPConnection -LocalPort $DEMO2_HTTPS_PORT -State Listen -ErrorAction SilentlyContinue
 if ($proxyAlready) {
-    Step "HTTPS proxy already LISTEN-ing (pid $($proxyAlready.OwningProcess)) — skipping start"
+    Step "HTTPS proxy already LISTEN-ing (pid $($proxyAlready.OwningProcess)) - skipping start"
 } elseif (Test-Path $proxyDir) {
     Step "Starting HTTPS proxy :$DEMO2_HTTPS_PORT -> :$DEMO2_GATEWAY_PORT"
     if (-not (Test-Path (Join-Path $proxyDir "node_modules"))) {
@@ -99,7 +99,7 @@ if ($proxyAlready) {
         npm install --silent 2>&1 | Out-Null
         Pop-Location
     }
-    # proxy.mjs reads DEMO2_HTTPS_PORT + DEMO2_UPSTREAM from env — feed them
+    # proxy.mjs reads DEMO2_HTTPS_PORT + DEMO2_UPSTREAM from env - feed them
     # from demo.config.ps1 so the proxy follows the same single source of truth.
     $proxyCmd = "Set-Location '$proxyDir'; " +
                 "`$env:DEMO2_HTTPS_PORT='$DEMO2_HTTPS_PORT'; " +
@@ -115,12 +115,12 @@ if ($proxyAlready) {
         Start-Sleep -Milliseconds 500
     }
     if (-not $proxyReady) {
-        Warn "HTTPS proxy didn't bind :18443 in 10s — booth dashboard still works on Surface, but mobile webcam SCAN will fail with 'insecure context'."
+        Warn "HTTPS proxy didn't bind :18443 in 10s - booth dashboard still works on Surface, but mobile webcam SCAN will fail with 'insecure context'."
     } else {
         Write-Host "    https proxy ready"
     }
 } else {
-    Warn "tools\https-proxy missing — phones won't get HTTPS QR URL"
+    Warn "tools\https-proxy missing - phones won't get HTTPS QR URL"
 }
 
 # -- Build dashboard URL --------------------------------------------------
@@ -130,13 +130,13 @@ $token = (Get-Content $envPath | Where-Object { $_ -match "^OPENCLAW_GATEWAY_TOK
     -replace "^OPENCLAW_GATEWAY_TOKEN=",""
 if (-not $token) { Fail "OPENCLAW_GATEWAY_TOKEN missing in $envPath" }
 
-# Surface itself uses 127.0.0.1 — Firefox grants webcam/mic on localhost
+# Surface itself uses 127.0.0.1 - Firefox grants webcam/mic on localhost
 # without an HTTPS cert. Phones scan the QR on the dashboard for the LAN URL.
 $url = "$DEMO2_GATEWAY_URL/?token=$token"
 
 # -- Pre-warm Ollama VLM (background) -------------------------------------
 # qwen2.5vl:3b weighs ~10GB resident. First call after boot or after the
-# Ollama idle eviction takes 30-60s — booth-killing latency. Pre-warm now
+# Ollama idle eviction takes 30-60s - booth-killing latency. Pre-warm now
 # so the first SCAN is already warm. Per-call `keep_alive: "10m"` in
 # vision.ts keeps it alive across visitor gaps.
 $visionModel = $DEMO2_VISION_MODEL
@@ -155,7 +155,7 @@ Start-Process powershell -ArgumentList "-WindowStyle","Hidden","-Command",$warmC
 # -- Launch Firefox --------------------------------------------------------
 
 if ($Dev) {
-    Step "Launching Firefox (windowed — dev mode)"
+    Step "Launching Firefox (windowed - dev mode)"
     Write-Host "    $firefox --new-window $url"
     Start-Process -FilePath $firefox -ArgumentList "--new-window", $url | Out-Null
 } else {

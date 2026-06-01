@@ -3,12 +3,12 @@
     stop-demo.ps1
     Cleanly stops anything start-demo.ps1 launched. Kills the process(es)
     bound to ports 18790 (gateway) and 8765 (Python bridge /cmd server).
-    Browser window is left alone — close it manually.
+    Browser window is left alone - close it manually.
 #>
 
 $ErrorActionPreference = "Continue"
 
-# Single source of truth for ports / profile — edit demo.config.ps1.
+# Single source of truth for ports / profile - edit demo.config.ps1.
 . "$PSScriptRoot\..\demo.config.ps1"
 
 function StopOnPort($port, $label) {
@@ -34,7 +34,7 @@ function StopOnPort($port, $label) {
 try {
     $null = openclaw --profile $DEMO2_PROFILE gateway stop 2>&1
 } catch {
-    # ignore — fall through to port-kill
+    # ignore - fall through to port-kill
 }
 Start-Sleep -Seconds 1
 

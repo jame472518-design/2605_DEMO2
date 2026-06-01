@@ -3,7 +3,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-# Single source of truth for profile — edit demo.config.ps1. An explicit
+# Single source of truth for profile - edit demo.config.ps1. An explicit
 # -Profile arg still overrides it.
 . "$PSScriptRoot\..\demo.config.ps1"
 if (-not $Profile) { $Profile = $DEMO2_PROFILE }
@@ -70,7 +70,7 @@ foreach ($p in $plugins) {
             $script:copied[$depName] = $true
             $depSrc = Join-Path $srcRoot "node_modules\$depName"
             if (-not (Test-Path $depSrc)) {
-                Write-Warning "  runtime dep '$depName' not found at $depSrc — skipping"
+                Write-Warning "  runtime dep '$depName' not found at $depSrc - skipping"
                 return
             }
             $depDst = Join-Path $dstRoot "node_modules\$depName"
@@ -103,7 +103,7 @@ foreach ($p in $plugins) {
             Copy-Item -Recurse -Force "$dashboardDist\*" $staticDst
             Write-Host "[$($p.Name)] copied dashboard SPA bundle -> $staticDst"
         } else {
-            Write-Host "[$($p.Name)] no dashboard/dist found — run 'cd dashboard; pnpm run build' then re-run this script"
+            Write-Host "[$($p.Name)] no dashboard/dist found - run 'cd dashboard; pnpm run build' then re-run this script"
         }
     }
 }

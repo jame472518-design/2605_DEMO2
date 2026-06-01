@@ -3,13 +3,13 @@
     bootstrap-profile.ps1
     Initializes the OpenClaw "strixdemo2" profile config (~/.openclaw-strixdemo2/openclaw.json)
     for the demo2 sensor station. Single plugin (sensor-bridge), single small model (qwen2:1.5b)
-    that's only invoked by judge-1 on threshold breach — never in the live sensor loop.
+    that's only invoked by judge-1 on threshold breach - never in the live sensor loop.
 
     Universal Rule: every openclaw invocation in demo2 MUST use --profile strixdemo2
     so it doesn't pollute the user's personal ~/.openclaw/.
 
     Schema notes (mirroring demo1's lessons learned 2026-05-08):
-      - gateway.bind = "lan" — schema only accepts bind modes (auto|lan|loopback|custom|tailnet).
+      - gateway.bind = "lan" - schema only accepts bind modes (auto|lan|loopback|custom|tailnet).
       - plugin.entries.<id>.* extra keys may be rejected by the core config validator
         depending on whether plugin manifests are merged before validation. Keep entries
         minimal here; per-plugin config goes in the plugin's own manifest.

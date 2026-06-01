@@ -5,7 +5,7 @@
 
     Default mode (ESP32-S3-CAM, post-W3): just starts the gateway + opens
     the browser. The ESP32 firmware (see arduino/esp32_sensor_node) connects
-    to WiFi independently and POSTs frames to the plugin — no Python bridge.
+    to WiFi independently and POSTs frames to the plugin - no Python bridge.
 
     Mock mode (-Mock): spawns mock_serial.py via the Python bridge so you
     can demo without hardware. Pass -ForceHeat to instantly trigger the
@@ -19,7 +19,7 @@
         # Production (ESP32 already running on LAN):
         .\scripts\start-demo.ps1
 
-        # No hardware — synthetic data via Python:
+        # No hardware - synthetic data via Python:
         .\scripts\start-demo.ps1 -Mock
         .\scripts\start-demo.ps1 -Mock -ForceHeat
 
@@ -35,14 +35,14 @@
 param(
     [switch]$Mock,           # spawn Python mock bridge instead of expecting ESP32
     [string]$UsbPort,        # legacy: spawn Python bridge with USB Arduino on this COM port
-    [switch]$ForceHeat,      # mock-only: hold 32+°C for 70s starting 5s after launch
+    [switch]$ForceHeat,      # mock-only: hold 32+ deg C for 70s starting 5s after launch
     [switch]$NoBrowser,      # don't auto-open the dashboard
     [switch]$Edge            # use Edge --app instead of default browser
 )
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 
-# Single source of truth for ports / profile / models — edit demo.config.ps1.
+# Single source of truth for ports / profile / models - edit demo.config.ps1.
 . "$PSScriptRoot\..\demo.config.ps1"
 
 function Step($msg) {
@@ -74,7 +74,7 @@ if (-not (Test-Path $staticIndex)) {
     Fail "Dashboard SPA bundle missing. Run 'cd dashboard; pnpm run build' then scripts\install-plugins.ps1"
 }
 
-# Filter by State=Listen — TIME_WAIT / ESTABLISHED entries from old client
+# Filter by State=Listen - TIME_WAIT / ESTABLISHED entries from old client
 # connections have OwningProcess=0 and don't block re-binding the port. Only
 # a real LISTENing process is a problem.
 $portGw = Get-NetTCPConnection -LocalPort $DEMO2_GATEWAY_PORT -State Listen -ErrorAction SilentlyContinue
@@ -98,7 +98,7 @@ if ($useBridge) {
 # Optional checks (warn-only)
 $ollama = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollama) {
-    Warn "ollama not on PATH — judge enrichment unavailable; alerts ship without Chinese explanation."
+    Warn "ollama not on PATH - judge enrichment unavailable; alerts ship without Chinese explanation."
 } else {
     $hasJudge = (ollama list 2>&1 | Select-String -Quiet ([regex]::Escape($DEMO2_JUDGE_MODEL)))
     if (-not $hasJudge) {
